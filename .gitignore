@@ -1,0 +1,51 @@
+# ---- Dependencies ----
+node_modules/
+.pnp
+.pnp.js
+
+# ---- Next.js / frontend build output ----
+frontend/.next/
+frontend/out/
+frontend/build/
+next-env.d.ts
+
+# ---- Python / uv ----
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+backend/htmlcov/
+backend/.coverage
+
+# ---- Alembic / DB local state ----
+backend/*.egg-info/
+
+# ---- Environment / secrets ----
+# Ignore every real .env file everywhere (including .env.local, which may
+# hold the Supabase service-role key and AI provider keys). Only the
+# committed templates are allowed through.
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# ---- Editor / OS ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+
+# ---- Docker ----
+postgres_data/
+
+# ---- Project-local data ----
+*.pdf
+*.docx
+large datasets/
+model weights/

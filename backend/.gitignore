@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local environment files (secrets). Never commit real values; the only
+# committed template is .env.example.
+.env
+.env.*
+!.env.example
