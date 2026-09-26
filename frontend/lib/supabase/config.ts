@@ -4,7 +4,13 @@ export const DEMO_PASSWORD = "NyayaDemo2026!";
 export const DEMO_SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 
 export function isDemoMode(): boolean {
-  return process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return true;
+
+  // A demo deployment must still render when Vercel has not received the
+  // optional public Supabase variables yet. Real Supabase is used whenever
+  // both values are present and demo mode is explicitly disabled.
+  const { url, anonKey } = supabaseConfig();
+  return !url || !anonKey;
 }
 
 export function supabaseConfig() {
