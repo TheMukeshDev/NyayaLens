@@ -7,6 +7,7 @@ import { CheckCircle2, UploadCloud } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { requestProcessing, uploadDocument, uploadErrorMessage } from "@/lib/api/upload";
+import { isDemoMode } from "@/lib/supabase/config";
 import { formatBytes } from "@/lib/format";
 import type { DocumentOut } from "@/lib/types";
 
@@ -163,11 +164,12 @@ export function UploadForm() {
                 <dd>{uploaded.status}</dd>
               </dl>
               <p className="mt-1 text-sm text-success">
-                Processing begins shortly. Your document is stored privately and
-                only accessible to your account.
+                {isDemoMode()
+                  ? "Demo analysis is ready immediately. Connect Supabase to persist documents and run the full processing pipeline."
+                  : "Processing begins shortly. Your document is stored privately and only accessible to your account."}
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
-                {uploaded.id ? (
+                {uploaded.id && !isDemoMode() ? (
                   <Button href={`/documents/${uploaded.id}/processing`}>
                     View processing
                   </Button>

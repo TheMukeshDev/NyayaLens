@@ -16,6 +16,7 @@ from app.ai.llm.errors import (
 )
 from app.ai.llm.models import ChatMessage
 from app.ai.llm.provider import (
+    GeminiInteractionsLLMProvider,
     LLMProvider,
     OpenAICompatibleLLMProvider,
     build_llm_provider,
@@ -118,9 +119,7 @@ class TestLLMProviderBasics:
             )
             return httpx.Response(200, json=_chat_response("ok"))
 
-        _provider(handler).generate(
-            [ChatMessage("system", "be strict"), ChatMessage("user", "Hi")]
-        )
+        _provider(handler).generate([ChatMessage("system", "be strict"), ChatMessage("user", "Hi")])
 
         assert sent["url"].endswith("/chat/completions")
         assert sent["auth"] == "Bearer sk-test-secret"
@@ -128,6 +127,85 @@ class TestLLMProviderBasics:
         assert body["model"] == MODEL
         assert body["stream"] is False
         assert [m["role"] for m in body["messages"]] == ["system", "user"]
+
+    def test_gemini_interactions_uses_documented_contract(self):
+        sent: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.update(
+                {
+                    "url": str(request.url),
+                    "headers": dict(request.headers),
+                    "body": json.loads(request.content),
+                }
+            )
+            return httpx.Response(
+                200,
+                json={
+                    "id": "interaction-test",
+                    "status": "completed",
+                    "model": "gemini-3.8-flash",
+                    "usage": {
+                        "total_tokens": 20,
+                        "total_input_tokens": 8,
+                        "total_output_tokens": 12,
+                    },
+                    "steps": [
+                        {
+                            "type": "model_output",
+                            "content": [{"type": "text", "text": "AI learns patterns."}],
+                        }
+                    ],
+                },
+            )
+
+        provider = GeminiInteractionsLLMProvider(
+            model_name="gemini-3.8-flash",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="gemini-test-secret",
+            retry_policy=RetryPolicy(max_attempts=1),
+            transport=httpx.MockTransport(handler),
+        )
+        result = provider.generate([ChatMessage("user", "Explain AI")])
+
+        assert sent["url"].endswith("/v1beta/interactions")
+        assert sent["headers"]["x-goog-api-key"] == "gemini-test-secret"
+        assert sent["headers"]["api-revision"] == "2026-05-20"
+        assert sent["body"] == {"model": "gemini-3.8-flash", "input": "USER:\nExplain AI"}
+        assert result.content == "AI learns patterns."
+        assert result.usage is not None
+        assert result.usage.prompt_tokens == 8
+        assert result.usage.completion_tokens == 12
+
+    def test_gemini_interactions_structured_output(self):
+        qa = QAOutput(
+            answer="Ninety days written notice.",
+            evidence_state=EvidenceState.DOCUMENT_GROUNDED,
+            citations=[{"chunk_id": "chunk_18"}],
+        ).model_dump_json()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            assert "Return only valid JSON" in body["input"]
+            return httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "steps": [{"type": "model_output", "content": [{"type": "text", "text": qa}]}],
+                },
+            )
+
+        provider = GeminiInteractionsLLMProvider(
+            model_name="gemini-3.8-flash",
+            base_url="https://ai.test/v1beta",
+            api_key="gemini-test-secret",
+            retry_policy=RetryPolicy(max_attempts=1),
+            transport=httpx.MockTransport(handler),
+        )
+        result = provider.structured_generate(
+            [ChatMessage("user", "What is the notice period?")], schema=QAOutput
+        )
+        assert result.answer == "Ninety days written notice."
 
     def test_structured_generate_validates_schema(self):
         qa = QAOutput(
@@ -156,16 +234,12 @@ class TestLLMProviderBasics:
         invalid = json.dumps({"answer": "x", "evidence_state": "NOT-A-STATE"})
         provider = _provider(_ok_handler(content=invalid))
         with pytest.raises(LLMOutputValidationError):
-            provider.structured_generate(
-                [ChatMessage("user", "Hi")], schema=QAOutput
-            )
+            provider.structured_generate([ChatMessage("user", "Hi")], schema=QAOutput)
 
     def test_structured_generate_rejects_malformed_json(self):
         provider = _provider(_ok_handler(content="{not json"))
         with pytest.raises(LLMOutputValidationError):
-            provider.structured_generate(
-                [ChatMessage("user", "Hi")], schema=QAOutput
-            )
+            provider.structured_generate([ChatMessage("user", "Hi")], schema=QAOutput)
 
     def test_empty_completion_never_fabricates(self):
         handler = _ok_handler(content="")
@@ -218,9 +292,9 @@ class TestRetryPolicy:
             return httpx.Response(503, json={"error": "boom"})
 
         with pytest.raises(LLMProviderUnavailableError):
-            _provider(
-                handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)
-            ).generate([ChatMessage("user", "Hi")])
+            _provider(handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)).generate(
+                [ChatMessage("user", "Hi")]
+            )
         assert attempts["n"] == 2
 
     def test_no_retry_on_client_error(self):
@@ -231,9 +305,9 @@ class TestRetryPolicy:
             return httpx.Response(400, json={"error": "bad"})
 
         with pytest.raises(LLMProviderUnavailableError):
-            _provider(
-                handler, policy=RetryPolicy(max_attempts=3, base_delay_seconds=0.1)
-            ).generate([ChatMessage("user", "Hi")])
+            _provider(handler, policy=RetryPolicy(max_attempts=3, base_delay_seconds=0.1)).generate(
+                [ChatMessage("user", "Hi")]
+            )
         assert attempts["n"] == 1
 
     def test_429_honours_retry_after_then_succeeds(self):
@@ -263,27 +337,27 @@ class TestRetryPolicy:
             return httpx.Response(429, json={"error": "slow down"})
 
         with pytest.raises(LLMRateLimitError):
-            _provider(
-                handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)
-            ).generate([ChatMessage("user", "Hi")])
+            _provider(handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)).generate(
+                [ChatMessage("user", "Hi")]
+            )
 
     def test_connection_error_retries_then_fails_safely(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("refused")
 
         with pytest.raises(LLMProviderUnavailableError):
-            _provider(
-                handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)
-            ).generate([ChatMessage("user", "Hi")])
+            _provider(handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)).generate(
+                [ChatMessage("user", "Hi")]
+            )
 
     def test_timeout_retries_then_raises_timeout_error(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("slow upstream")
 
         with pytest.raises(LLMTimeoutError):
-            _provider(
-                handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)
-            ).generate([ChatMessage("user", "Hi")])
+            _provider(handler, policy=RetryPolicy(max_attempts=2, base_delay_seconds=0.1)).generate(
+                [ChatMessage("user", "Hi")]
+            )
 
 
 class TestRateLimit:

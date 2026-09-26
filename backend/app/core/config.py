@@ -16,7 +16,11 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_REPOSITORY_DIR = _BACKEND_DIR.parent
+# Local development commonly keeps one repository .env, while deployments can
+# provide a backend/.env with server-only overrides. The backend file wins.
+_ENV_FILE = (str(_REPOSITORY_DIR / ".env"), str(_BACKEND_DIR / ".env"))
 
 
 class Settings(BaseSettings):
@@ -29,7 +33,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=str(_ENV_FILE),
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -191,8 +195,8 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_llm_provider(cls, value: str) -> str:
         value = value.strip().lower()
-        if value not in {"openai-compatible"}:
-            raise ValueError("llm_provider must be 'openai-compatible'")
+        if value not in {"openai-compatible", "gemini-interactions"}:
+            raise ValueError("llm_provider must be 'openai-compatible' or 'gemini-interactions'")
         return value
 
     @field_validator("llm_max_attempts")

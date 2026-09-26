@@ -33,10 +33,10 @@ function Section({
 }
 
 export default async function DashboardPage() {
-  const documentsResult = await serverApi<DocumentListData>("/documents");
-  const documents = documentsResult.ok && documentsResult.data ? documentsResult.data.items : [];
-  const errored = !documentsResult.ok && documentsResult.status !== 0;
-  const authMismatch = documentsResult.status === 401;
+  const documentsResult = isDemoMode() ? null : await serverApi<DocumentListData>("/documents");
+  const documents = documentsResult?.ok && documentsResult.data ? documentsResult.data.items : [];
+  const errored = documentsResult ? !documentsResult.ok && documentsResult.status !== 0 : false;
+  const authMismatch = documentsResult?.status === 401;
   const recent = documents.slice(0, 6);
   const processing = documents.filter(
     (doc) => doc.status !== "READY" && doc.status !== "FAILED",
@@ -76,16 +76,18 @@ export default async function DashboardPage() {
         ) : (
           <EmptyState
             icon={UploadCloud}
-            title={errored ? "We couldn't load your documents" : "No documents yet"}
+            title={isDemoMode() ? "Demo workspace" : errored ? "We couldn't load your documents" : "No documents yet"}
             description={
-              authMismatch && isDemoMode()
-                ? "Demo login is working, but the deployed backend requires a real Supabase token for document APIs. Use the connection test to verify each service."
+              isDemoMode()
+                ? "Demo uploads are shown immediately in the upload screen. Connect a real Supabase project to persist documents and run backend processing."
+                : authMismatch
+                  ? "Your authentication token was rejected by the backend. Use the connection test to verify Supabase and backend configuration."
                 : errored
                   ? "The document service is not available right now. Please try again shortly."
                 : "Upload your first document to begin reviewing."
             }
             action={
-              authMismatch && isDemoMode() ? (
+              authMismatch ? (
                 <Button href="/connection-test" variant="secondary">Run connection test</Button>
               ) : (
                 <Button href="/upload">Upload document</Button>

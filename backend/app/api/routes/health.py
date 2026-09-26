@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.core.config import settings
+from app.core.supabase import check_database_connection
 from app.schemas.common import SuccessResponse
 from app.schemas.health import HealthData
 
@@ -30,6 +31,7 @@ def health() -> dict[str, str]:
 @api_router.get("/health", response_model=SuccessResponse[HealthData])
 def health_v1() -> SuccessResponse[HealthData]:
     """Structured health payload for the versioned API."""
+    supabase_configured, database_connected = check_database_connection()
     return SuccessResponse(
         data=HealthData(
             status="ok",
@@ -37,5 +39,7 @@ def health_v1() -> SuccessResponse[HealthData]:
             version=settings.app_version,
             api_version=settings.api_version,
             environment=settings.environment,
+            supabase_configured=supabase_configured,
+            database_connected=database_connected,
         )
     )

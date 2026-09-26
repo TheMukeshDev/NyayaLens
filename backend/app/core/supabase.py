@@ -49,3 +49,17 @@ def get_supabase_client() -> Client:
     if client is None:
         raise RuntimeError("Supabase is not configured.")
     return client
+
+
+def check_database_connection() -> tuple[bool, bool]:
+    """Return ``(supabase_configured, database_connected)`` without leaking errors."""
+    if _build_client() is None:
+        return False, False
+    try:
+        # A bounded read proves the API key, network, PostgREST service, and
+        # migrated documents table are all available without exposing rows.
+        _build_client().table("documents").select("id").limit(1).execute()  # type: ignore[union-attr]
+    except Exception:
+        logger.warning("Supabase database health probe failed", exc_info=True)
+        return True, False
+    return True, True

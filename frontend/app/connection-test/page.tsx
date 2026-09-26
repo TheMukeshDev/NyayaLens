@@ -23,16 +23,23 @@ async function checkBackend(): Promise<CheckResult> {
   }
 
   try {
-    const response = await fetch(`${baseUrl}/health`, {
+    const response = await fetch(`${baseUrl}/api/v1/health`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = (await response.json()) as {
+      data?: { database_connected?: boolean; supabase_configured?: boolean };
+    };
+    const databaseConnected = body.data?.database_connected === true;
+    const supabaseConfigured = body.data?.supabase_configured === true;
     return {
       name: "NyayaLens backend",
-      status: "connected",
-      explanation: "The frontend can reach the backend health route.",
-      detail: `${baseUrl}/health responded with HTTP ${response.status}.`,
+      status: databaseConnected ? "connected" : "failed",
+      explanation: databaseConnected
+        ? "Backend, Supabase configuration, and the database probe are connected."
+        : "The backend is reachable, but its Supabase database probe is not connected.",
+      detail: `${baseUrl}/api/v1/health: HTTP ${response.status}; supabase_configured=${supabaseConfigured}; database_connected=${databaseConnected}.`,
     };
   } catch (error) {
     return {

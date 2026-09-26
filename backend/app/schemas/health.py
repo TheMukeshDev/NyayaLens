@@ -13,3 +13,5 @@ class HealthData(BaseModel):
     version: str
     api_version: str
     environment: str
+    supabase_configured: bool
+    database_connected: bool
