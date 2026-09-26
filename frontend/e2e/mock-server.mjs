@@ -26,7 +26,12 @@ const SEEDED_USER = {
 };
 
 /** How long a freshly uploaded document "processes" before it is READY. */
-const PROCESSING_MS = 4000;
+/**
+ * How long a document stays in `PROCESSING` before the mock flips it to
+ * `READY`. Long enough that a dev server's first-visit route compilation
+ * cannot outrun it, which would redirect past the processing screen.
+ */
+const PROCESSING_MS = 10_000;
 
 /* -------------------------------------------------------------------------- */
 /* State                                                                      */

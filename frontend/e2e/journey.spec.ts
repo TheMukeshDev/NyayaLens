@@ -78,11 +78,15 @@ test("signup -> login -> upload -> processing -> overview -> summary -> Q&A -> c
 
   /* ---- 4. Processing -> READY -------------------------------------------- */
   await page.getByRole("link", { name: "View processing" }).click();
-  await expect(page).toHaveURL(new RegExp(`/documents/${documentId}/processing$`));
-  await expect(page.getByText("Document ready")).toBeVisible({ timeout: 30_000 });
+  // The processing screen redirects to the overview when the document is
+  // already ready by the time it renders, so both outcomes are legitimate.
+  await expect(page).toHaveURL(new RegExp(`/documents/${documentId}(/processing)?$`));
 
   /* ---- 5. Document overview ---------------------------------------------- */
-  await page.getByRole("link", { name: "Open document" }).click();
+  if (page.url().endsWith("/processing")) {
+    await expect(page.getByText("Document ready")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("link", { name: "Open document" }).click();
+  }
   await expect(page).toHaveURL(new RegExp(`/documents/${documentId}$`));
   await expect(page.getByRole("heading", { level: 1, name: "contract.pdf" })).toBeVisible();
   await expect(page.getByText("Acme Corp")).toBeVisible();
