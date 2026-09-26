@@ -16,7 +16,9 @@ No file content is ever logged here.
 
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from dataclasses import dataclass
 from typing import Final
 
@@ -200,8 +202,59 @@ def validate_uploaded_file(filename: str, content: bytes) -> ValidationOutcome:
             "The file content does not match its declared file type.",
         )
 
+    if extension == "docx":
+        docx_safety = _validate_docx_safety(content)
+        if not docx_safety.valid:
+            return docx_safety
+
     return ValidationOutcome(
         valid=True,
         mime_type=mime_type,
         extension=extension,
     )
+
+
+_MAX_UNCOMPRESSED_DOCX_BYTES: Final = 60 * 1024 * 1024  # 60 MB
+_MAX_DOCX_ENTRIES: Final = 2000
+_MAX_DECOMPRESSION_RATIO: Final = 100.0  # 100:1 ratio cap
+
+
+def _validate_docx_safety(content: bytes) -> ValidationOutcome:
+    """Detect decompression bombs and malicious archives inside DOCX containers."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            infolist = zf.infolist()
+            if len(infolist) > _MAX_DOCX_ENTRIES:
+                return _invalid(
+                    ErrorCodes.MALWARE_DETECTED,
+                    400,
+                    "DOCX archive contains too many entries (potential archive bomb).",
+                )
+            total_uncompressed = 0
+            for info in infolist:
+                total_uncompressed += info.file_size
+                if total_uncompressed > _MAX_UNCOMPRESSED_DOCX_BYTES:
+                    return _invalid(
+                        ErrorCodes.MALWARE_DETECTED,
+                        400,
+                        "DOCX uncompressed payload exceeds safe limits (potential decompression bomb).",
+                    )
+            if len(content) > 0 and (total_uncompressed / len(content)) > _MAX_DECOMPRESSION_RATIO:
+                return _invalid(
+                    ErrorCodes.MALWARE_DETECTED,
+                    400,
+                    "DOCX compression ratio is suspiciously high (potential decompression bomb).",
+                )
+    except zipfile.BadZipFile:
+        return _invalid(
+            ErrorCodes.INVALID_FILE,
+            400,
+            "The file content is not a valid DOCX document.",
+        )
+    except Exception:
+        return _invalid(
+            ErrorCodes.INVALID_FILE,
+            400,
+            "Failed to inspect DOCX archive structure.",
+        )
+    return ValidationOutcome(valid=True)

@@ -6,11 +6,15 @@ import { ProcessingCard } from "@/components/documents/processing-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AttentionBadge } from "@/components/ui/status";
 import { serverApi } from "@/lib/api/server";
-import type { DocumentListData, DocumentStatusData } from "@/lib/types";
+import type { AttentionItemOut, DocumentListData, DocumentStatusData } from "@/lib/types";
 import { isDemoMode } from "@/lib/supabase/config";
 
 export const metadata = { title: "Dashboard" };
+
+/** How many READY documents the dashboard fans out to for attention items. */
+const ATTENTION_DOCUMENT_LIMIT = 3;
 
 function Section({
   title,
@@ -33,10 +37,12 @@ function Section({
 }
 
 export default async function DashboardPage() {
-  const documentsResult = isDemoMode() ? null : await serverApi<DocumentListData>("/documents");
-  const documents = documentsResult?.ok && documentsResult.data ? documentsResult.data.items : [];
-  const errored = documentsResult ? !documentsResult.ok && documentsResult.status !== 0 : false;
-  const authMismatch = documentsResult?.status === 401;
+  // Works in demo mode too: `serverApi` routes to the in-app demo API, which
+  // serves the seeded workspace and anything uploaded to it.
+  const documentsResult = await serverApi<DocumentListData>("/documents");
+  const documents = documentsResult.ok && documentsResult.data ? documentsResult.data.items : [];
+  const errored = !documentsResult.ok && documentsResult.status !== 0;
+  const authMismatch = documentsResult.status === 401;
   const recent = documents.slice(0, 6);
   const processing = documents.filter(
     (doc) => doc.status !== "READY" && doc.status !== "FAILED",
@@ -51,6 +57,26 @@ export default async function DashboardPage() {
           }),
         )
       : [];
+
+  // Attention items are only exposed per document, so this fans out over the
+  // most recently uploaded READY documents and groups the results by document.
+  const reviewed = documents
+    .filter((doc) => doc.status === "READY")
+    .slice(0, ATTENTION_DOCUMENT_LIMIT);
+  const attention = (
+    await Promise.all(
+      reviewed.map(async (doc) => {
+        const result = await serverApi<{ items: AttentionItemOut[] }>(
+          `/documents/${doc.id}/attention`,
+        );
+        return {
+          documentId: doc.id,
+          label: doc.display_name ?? doc.filename,
+          items: result.ok && result.data ? result.data.items : [],
+        };
+      }),
+    )
+  ).filter((group) => group.items.length > 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,15 +102,23 @@ export default async function DashboardPage() {
         ) : (
           <EmptyState
             icon={UploadCloud}
-            title={isDemoMode() ? "Demo workspace" : errored ? "We couldn't load your documents" : "No documents yet"}
+            title={
+              authMismatch
+                ? "We couldn't verify your session"
+                : errored
+                  ? "We couldn't load your documents"
+                  : isDemoMode()
+                    ? "No documents in this demo yet"
+                    : "No documents yet"
+            }
             description={
-              isDemoMode()
-                ? "Demo uploads are shown immediately in the upload screen. Connect a real Supabase project to persist documents and run backend processing."
-                : authMismatch
-                  ? "Your authentication token was rejected by the backend. Use the connection test to verify Supabase and backend configuration."
+              authMismatch
+                ? "Your authentication token was rejected by the backend. Use the connection test to verify Supabase and backend configuration."
                 : errored
                   ? "The document service is not available right now. Please try again shortly."
-                : "Upload your first document to begin reviewing."
+                  : isDemoMode()
+                    ? "This demo workspace starts with a few sample documents to explore. Anything you upload is added alongside them."
+                    : "Upload your first document to begin reviewing."
             }
             action={
               authMismatch ? (
@@ -117,12 +151,38 @@ export default async function DashboardPage() {
         title="Attention items"
         description="Areas worth reviewing are surfaced here once your documents are analyzed."
       >
-        <EmptyState
-          icon={FileQuestion}
-          title="No attention items yet"
-          description="Attention items from your document reviews will appear here."
-          action={<Button href="/upload" variant="secondary">Upload a document</Button>}
-        />
+        {attention.length > 0 ? (
+          <div className="flex flex-col gap-5">
+            {attention.map((group) => (
+              <div key={group.documentId} className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">
+                  {group.label}
+                </h3>
+                <ul className="flex flex-col gap-2">
+                  {group.items.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex flex-col gap-2 rounded-lg border border-line bg-canvas/50 p-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-navy">{item.title}</p>
+                        <p className="mt-1 text-sm text-muted">{item.description}</p>
+                      </div>
+                      <AttentionBadge level={item.attention_level} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={FileQuestion}
+            title="No attention items yet"
+            description="Attention items from your document reviews will appear here."
+            action={<Button href="/upload" variant="secondary">Upload a document</Button>}
+          />
+        )}
       </Section>
 
       {/* Recent Questions */}

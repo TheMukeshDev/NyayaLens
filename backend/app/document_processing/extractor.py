@@ -77,6 +77,10 @@ class TextExtractor:
             logger.error("PDF open failed", exc_info=True)
             raise ExtractionError(f"Could not read PDF: {type(exc).__name__}.") from exc
 
+        MAX_PDF_PAGES = 500
+        if len(reader.pages) > MAX_PDF_PAGES:
+            raise ExtractionError(f"PDF exceeds maximum allowed length of {MAX_PDF_PAGES} pages.")
+
         pages: list[ExtractedPage] = []
         for page_index, page in enumerate(reader.pages, start=1):
             number = reader.get_page_number(page) or page_index
@@ -118,6 +122,14 @@ class TextExtractor:
             import docx as docx_lib
         except ImportError as exc:  # pragma: no cover - declared dependency
             raise ExtractionError("python-docx is not installed.") from exc
+
+        import zipfile
+        try:
+            with zipfile.ZipFile(BytesIO(content)) as zf:
+                if len(zf.infolist()) > 2000 or sum(z.file_size for z in zf.infolist()) > 60 * 1024 * 1024:
+                    raise ExtractionError("DOCX archive exceeds safe expansion limits (potential decompression bomb).")
+        except zipfile.BadZipFile as exc:
+            raise ExtractionError(f"Could not read DOCX: {type(exc).__name__}.") from exc
 
         try:
             document = docx_lib.Document(BytesIO(content))

@@ -1,6 +1,5 @@
 import { clientApi, clientJson } from "@/lib/api/client";
 import { ERROR_MESSAGES } from "@/lib/constants";
-import { isDemoMode } from "@/lib/supabase/config";
 import type { ApiError, DocumentOut, UploadIntentData } from "@/lib/types";
 
 /**
@@ -56,27 +55,6 @@ async function putToStorage(
 }
 
 export async function uploadDocument(file: File): Promise<UploadResult> {
-  if (isDemoMode()) {
-    const now = new Date().toISOString();
-    return {
-      ok: true,
-      document: {
-        id: `demo-document-${Date.now()}`,
-        filename: file.name,
-        display_name: file.name,
-        mime_type: file.type || "application/octet-stream",
-        file_size_bytes: file.size,
-        status: "READY",
-        processing_error: null,
-        page_count: null,
-        checksum_sha256: null,
-        uploaded_at: now,
-        created_at: now,
-        updated_at: now,
-      },
-    };
-  }
-
   const intent = await clientJson<UploadIntentData>(
     "/documents/upload-intent",
     "POST",
@@ -91,9 +69,13 @@ export async function uploadDocument(file: File): Promise<UploadResult> {
 
   const { document, upload } = intent.data;
 
-  const transferred = await putToStorage(upload, file);
-  if (!transferred.ok) {
-    return uploadError("STORAGE_ERROR", transferred.message);
+  // Demo mode has no storage bucket behind it, so the ticket is a placeholder
+  // and there are no bytes to transfer.
+  if (upload.signed_url) {
+    const transferred = await putToStorage(upload, file);
+    if (!transferred.ok) {
+      return uploadError("STORAGE_ERROR", transferred.message);
+    }
   }
 
   const completed = await clientApi<DocumentOut>(`/documents/${document.id}/complete`, {
@@ -119,7 +101,6 @@ export async function uploadDocument(file: File): Promise<UploadResult> {
  * repeating the call is harmless.
  */
 export function requestProcessing(documentId: string): void {
-  if (isDemoMode()) return;
   void clientApi<DocumentOut>(`/documents/${documentId}/process`, {
     method: "POST",
     keepalive: true,

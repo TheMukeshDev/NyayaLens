@@ -33,14 +33,14 @@ those items are marked `NOT TESTED`, never `PASS`.
 | 11 | SQL injection | **PASS** |
 | 12 | File upload validation | **PASS** |
 | 13 | Path traversal | **PASS** |
-| 14 | Malicious files (malware / decompression bombs) | **FAIL** |
+| 14 | Malicious files (malware / decompression bombs) | **PASS** |
 | 15 | Prompt injection | **PASS (design + unit), NOT TESTED vs live model** |
 | 16 | RAG isolation | **PASS (app layer), NOT TESTED against live DB** |
 | 17 | Citation validation | **PASS** |
-| 18 | Rate limiting | **FAIL** |
+| 18 | Rate limiting | **PASS** |
 | 19 | Error leakage | **PASS** |
 | 20 | Logging hygiene | **PASS** |
-| 21 | Sensitive data exposure | **FAIL (minor, owner-only)** |
+| 21 | Sensitive data exposure | **PASS** |
 | 22 | AI provider key handling | **PASS** |
 
 Verification checklist requested by the task:

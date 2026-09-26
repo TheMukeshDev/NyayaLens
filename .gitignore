@@ -52,3 +52,5 @@ model weights/
 
 # ---- Preview / tool cruft ----
 .freebuff/
+.vercel
+.env*

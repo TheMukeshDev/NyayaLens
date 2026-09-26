@@ -142,6 +142,24 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         self._transport = transport
         self._monotonic = monotonic
         self._sleeper = sleeper
+        self._client: httpx.Client | None = None
+
+    def _get_client(self) -> httpx.Client:
+        if self._client is None or self._client.is_closed:
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+            self._client = httpx.Client(
+                timeout=httpx.Timeout(self._timeout_seconds),
+                transport=self._transport,
+                limits=limits,
+            )
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+
+    def __del__(self) -> None:
+        self.close()
 
     @property
     @override
@@ -226,15 +244,13 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         return payload
 
     def _post(self, payload: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
-        """Perform one POST. httpx exceptions propagate to the retry loop."""
-        with httpx.Client(
-            timeout=httpx.Timeout(self._timeout_seconds), transport=self._transport
-        ) as client:
-            return client.post(
-                f"{self._base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
+        """Perform one POST using persistent connection pool."""
+        client = self._get_client()
+        return client.post(
+            f"{self._base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+        )
 
     def _parse_response(self, response: httpx.Response, started: float) -> LLMResponse:
         try:
@@ -300,6 +316,24 @@ class GeminiInteractionsLLMProvider(LLMProvider):
         self._transport = transport
         self._monotonic = monotonic
         self._sleeper = sleeper
+        self._client: httpx.Client | None = None
+
+    def _get_client(self) -> httpx.Client:
+        if self._client is None or self._client.is_closed:
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+            self._client = httpx.Client(
+                timeout=httpx.Timeout(self._timeout_seconds),
+                transport=self._transport,
+                limits=limits,
+            )
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+
+    def __del__(self) -> None:
+        self.close()
 
     @property
     @override
@@ -332,12 +366,10 @@ class GeminiInteractionsLLMProvider(LLMProvider):
             attempt += 1
             self._throttle.wait()
             try:
-                with httpx.Client(
-                    timeout=httpx.Timeout(self._timeout_seconds), transport=self._transport
-                ) as client:
-                    response = client.post(
-                        f"{self._base_url}/interactions", json=payload, headers=headers
-                    )
+                client = self._get_client()
+                response = client.post(
+                    f"{self._base_url}/interactions", json=payload, headers=headers
+                )
             except httpx.TimeoutException as exc:
                 if attempt >= self._policy.max_attempts:
                     raise LLMTimeoutError("The LLM provider did not respond in time.") from exc

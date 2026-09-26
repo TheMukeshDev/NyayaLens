@@ -24,6 +24,7 @@ from .api.routes import health
 from .core.config import settings
 from .core.errors import register_exception_handlers
 from .core.logging import RequestContextMiddleware, setup_logging
+from .core.rate_limit import RateLimitMiddleware
 from .core.security import SecurityHeadersMiddleware
 
 setup_logging(settings.log_level)
@@ -39,9 +40,10 @@ app = FastAPI(
 
 register_exception_handlers(app)
 
-# Middleware is applied in reverse order of registration, so CORS is the
-# outermost layer, then security headers, then request context.
+# Middleware is applied in reverse order of registration:
+# CORS -> SecurityHeaders -> RateLimit -> RequestContext
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,

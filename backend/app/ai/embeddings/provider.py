@@ -25,7 +25,7 @@ import math
 import re
 import time
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Final
 
 import httpx
 
@@ -34,9 +34,11 @@ from app.ai.embeddings.errors import (
     EmbeddingProviderUnavailableError,
 )
 from app.ai.transport import RequestThrottle, RetryPolicy, is_retryable_status
+from app.core.cache import embedding_cache
 
 _DEFAULT_DIMENSION = 512
 _REQUEST_TIMEOUT_SECONDS = 30.0
+_WORD_PATTERN: Final = re.compile(r"[a-z0-9]+")
 
 _Monotonic = Callable[[], float]
 _Sleeper = Callable[[float], None]
@@ -72,15 +74,21 @@ class EmbeddingProvider:
         raise NotImplementedError
 
     def embed_one(self, text: str) -> Vector:
+        cache_key = f"{self.model_name}:{self.dimension}:{text}"
+        cached = embedding_cache.get(cache_key)
+        if cached is not None:
+            return cached
         vectors = self.embed([text])
-        return vectors[0]
+        result = vectors[0]
+        embedding_cache.set(cache_key, result)
+        return result
 
 
 def content_tokens(text: str) -> list[str]:
     """Lowercase alphanumeric tokens, dropping stopwords and 1-char noise."""
     return [
         token
-        for token in re.findall(r"[a-z0-9]+", text.lower())
+        for token in _WORD_PATTERN.findall(text.lower())
         if token not in _STOPWORDS and len(token) >= 2
     ]
 
@@ -173,6 +181,24 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         self._transport = transport
         self._monotonic = monotonic
         self._sleeper = sleeper
+        self._client: httpx.Client | None = None
+
+    def _get_client(self) -> httpx.Client:
+        if self._client is None or self._client.is_closed:
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0)
+            self._client = httpx.Client(
+                timeout=self._timeout,
+                transport=self._transport,
+                limits=limits,
+            )
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+
+    def __del__(self) -> None:
+        self.close()
 
     @property
     def model_name(self) -> str:
@@ -205,12 +231,10 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
             attempt += 1
             self._throttle.wait()
             try:
-                with httpx.Client(
-                    timeout=self._timeout, transport=self._transport
-                ) as client:
-                    response = client.post(
-                        f"{self._base_url}/embeddings", json=payload, headers=headers
-                    )
+                client = self._get_client()
+                response = client.post(
+                    f"{self._base_url}/embeddings", json=payload, headers=headers
+                )
             except httpx.HTTPError as exc:
                 if attempt < self._policy.max_attempts:
                     self._sleeper(self._policy.delay_for(attempt))

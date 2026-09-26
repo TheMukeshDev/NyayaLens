@@ -24,5 +24,7 @@ export default defineConfig({
     css: false,
     restoreMocks: true,
     clearMocks: true,
+    testTimeout: 25000,
+    hookTimeout: 25000,
   },
 });

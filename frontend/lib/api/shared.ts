@@ -9,6 +9,12 @@ export const API_BASE = "/api/v1";
  */
 const API_PROXY_PREFIX = "/backend";
 
+/**
+ * Same-origin path the demo API is served from. Only used when demo mode is on,
+ * so `apiBase()` is bypassed entirely and no backend host is contacted.
+ */
+export const DEMO_API_PREFIX = "/api/demo";
+
 export interface ApiResult<T> {
   ok: boolean;
   status: number;
@@ -53,8 +59,33 @@ export async function parseApiResponse<T>(response: Response): Promise<ApiResult
   return { ok: false, status: response.status, data: null, message: null, error };
 }
 
+function networkFailure(): ApiResult<never> {
+  return {
+    ok: false,
+    status: 0,
+    data: null,
+    message: null,
+    error: {
+      code: "NETWORK_ERROR",
+      message: "Could not reach the backend service. Please try again in a moment.",
+      details: null,
+    },
+  };
+}
+
+/** Single fetch path so a dropped connection looks the same to every caller. */
+async function fetchApi<T>(url: string, init: RequestInit): Promise<ApiResult<T>> {
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, cache: init.cache ?? "no-store" });
+  } catch {
+    return networkFailure();
+  }
+  return parseApiResponse<T>(response);
+}
+
 /** The caller supplies an access token; both server and client use this. */
-export async function apiRequest<T>(
+export function apiRequest<T>(
   token: string,
   path: string,
   init: RequestInit = {},
@@ -64,28 +95,16 @@ export async function apiRequest<T>(
   if (init.body != null && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+  return fetchApi<T>(`${apiBase()}${API_BASE}${path}`, { ...init, headers });
+}
 
-  let response: Response;
-  try {
-    response = await fetch(`${apiBase()}${API_BASE}${path}`, {
-      ...init,
-      headers,
-      cache: init.cache ?? "no-store",
-    });
-  } catch {
-    return {
-      ok: false,
-      status: 0,
-      data: null,
-      message: null,
-      error: {
-        code: "NETWORK_ERROR",
-        message: "Could not reach the backend service. Please try again in a moment.",
-        details: null,
-      },
-    };
+/** Demo-mode equivalent of {@link apiRequest}: same envelope, no backend. */
+export function demoRequest<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
+  const headers = new Headers(init.headers);
+  if (init.body != null && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
   }
-  return parseApiResponse<T>(response);
+  return fetchApi<T>(`${DEMO_API_PREFIX}${path}`, { ...init, headers });
 }
 
 export function apiRequestJson<T>(

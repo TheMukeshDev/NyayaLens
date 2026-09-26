@@ -17,6 +17,24 @@ const nextConfig: NextConfig = {
   // developer already has open, so it points Next at a separate build directory
   // via NEXT_DIST_DIR. Unset, this stays the default `.next`.
   distDir: process.env.NEXT_DIST_DIR || undefined,
+  compress: true,
+  poweredByHeader: false,
+  experimental: {
+    optimizePackageImports: ["lucide-react"],
+  },
+  async headers() {
+    return [
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     if (!apiProxyTarget) return [];
     return [{ source: "/backend/:path*", destination: `${apiProxyTarget}/:path*` }];

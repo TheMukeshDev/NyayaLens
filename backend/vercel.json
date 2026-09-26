@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/v1/internal/process-documents",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     }
   ],
   "rewrites": [

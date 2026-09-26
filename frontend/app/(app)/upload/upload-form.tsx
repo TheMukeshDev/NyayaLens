@@ -165,11 +165,11 @@ export function UploadForm() {
               </dl>
               <p className="mt-1 text-sm text-success">
                 {isDemoMode()
-                  ? "Demo analysis is ready immediately. Connect Supabase to persist documents and run the full processing pipeline."
+                  ? "Demo processing starts immediately and the sample analysis becomes available in a few seconds. Documents live in this demo workspace only, so they reset when the server restarts."
                   : "Processing begins shortly. Your document is stored privately and only accessible to your account."}
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
-                {uploaded.id && !isDemoMode() ? (
+                {uploaded.id ? (
                   <Button href={`/documents/${uploaded.id}/processing`}>
                     View processing
                   </Button>

@@ -21,6 +21,7 @@ from app.document_processing.models import (
 
 DEFAULT_MAX_CHARS = 4000  # ~500-1000 tokens (RAG-Architecture.md §5)
 _MIN_CHARS = 700
+_SENTENCE_BOUNDARY = re.compile(r"[.!?]\s+")
 
 
 def section_label(section: ExtractedSection | None) -> str | None:
@@ -243,7 +244,7 @@ def _best_boundary(window: str, min_chars: int) -> int:
 def _last_sentence_end(window: str, min_chars: int) -> int:
     positions = [
         match.end()
-        for match in re.finditer(r"[.!?]\s+", window)
+        for match in _SENTENCE_BOUNDARY.finditer(window)
         if match.end() >= min_chars
     ]
     return positions[-1] if positions else -1
