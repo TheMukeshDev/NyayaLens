@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { serverApi } from "@/lib/api/server";
 import type { DocumentListData, DocumentStatusData } from "@/lib/types";
+import { isDemoMode } from "@/lib/supabase/config";
 
 export const metadata = { title: "Dashboard" };
 
@@ -35,6 +36,7 @@ export default async function DashboardPage() {
   const documentsResult = await serverApi<DocumentListData>("/documents");
   const documents = documentsResult.ok && documentsResult.data ? documentsResult.data.items : [];
   const errored = !documentsResult.ok && documentsResult.status !== 0;
+  const authMismatch = documentsResult.status === 401;
   const recent = documents.slice(0, 6);
   const processing = documents.filter(
     (doc) => doc.status !== "READY" && doc.status !== "FAILED",
@@ -76,11 +78,19 @@ export default async function DashboardPage() {
             icon={UploadCloud}
             title={errored ? "We couldn't load your documents" : "No documents yet"}
             description={
-              errored
-                ? "The document service is not available right now. Please try again shortly."
+              authMismatch && isDemoMode()
+                ? "Demo login is working, but the deployed backend requires a real Supabase token for document APIs. Use the connection test to verify each service."
+                : errored
+                  ? "The document service is not available right now. Please try again shortly."
                 : "Upload your first document to begin reviewing."
             }
-            action={<Button href="/upload">Upload document</Button>}
+            action={
+              authMismatch && isDemoMode() ? (
+                <Button href="/connection-test" variant="secondary">Run connection test</Button>
+              ) : (
+                <Button href="/upload">Upload document</Button>
+              )
+            }
           />
         )}
       </Section>

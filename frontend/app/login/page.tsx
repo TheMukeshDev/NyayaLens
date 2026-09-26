@@ -72,6 +72,11 @@ export default async function LoginPage(props: PageProps<"/login">) {
             Sign up
           </Link>
         </p>
+        <p className="mt-3 text-center text-xs text-muted">
+          <Link href="/connection-test" className="hover:text-brand hover:underline">
+            Check service connections
+          </Link>
+        </p>
       </div>
 
       <p className="mt-6 max-w-sm text-center text-xs text-muted">

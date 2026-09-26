@@ -1,7 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { DEMO_USER_COOKIE, isDemoMode, supabaseConfig } from "@/lib/supabase/config";
+import {
+  DEMO_SESSION_MAX_AGE,
+  DEMO_USER_COOKIE,
+  isDemoMode,
+  supabaseConfig,
+} from "@/lib/supabase/config";
 
 /**
  * Next.js 16 Proxy (formerly Middleware).
@@ -44,6 +49,14 @@ async function updateSession(request: NextRequest) {
       url.pathname = "/dashboard";
       url.search = "";
       return NextResponse.redirect(url);
+    }
+    if (user) {
+      supabaseResponse.cookies.set(DEMO_USER_COOKIE, user, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: DEMO_SESSION_MAX_AGE,
+      });
     }
     return supabaseResponse;
   }

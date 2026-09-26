@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import {
   DEMO_EMAIL,
   DEMO_PASSWORD,
+  DEMO_SESSION_MAX_AGE,
   DEMO_USER_COOKIE,
   isDemoMode,
   supabaseConfig,
@@ -54,6 +55,13 @@ export async function createClient() {
 }
 
 function createDemoClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  const demoCookieOptions = {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: DEMO_SESSION_MAX_AGE,
+  };
+
   function currentUser() {
     const email = cookieStore.get(DEMO_USER_COOKIE)?.value;
     return email ? { id: `demo-${email}`, email } : null;
@@ -71,14 +79,14 @@ function createDemoClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
         };
       },
       async signUp({ email }: { email: string }) {
-        cookieStore.set(DEMO_USER_COOKIE, email, { httpOnly: true, sameSite: "lax", path: "/" });
+        cookieStore.set(DEMO_USER_COOKIE, email, demoCookieOptions);
         return { data: { session: { access_token: `demo-${email}` } }, error: null };
       },
       async signInWithPassword({ email, password }: { email: string; password: string }) {
         if (email !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
           return { error: { message: "Use the demo email and password shown below." } };
         }
-        cookieStore.set(DEMO_USER_COOKIE, email, { httpOnly: true, sameSite: "lax", path: "/" });
+        cookieStore.set(DEMO_USER_COOKIE, email, demoCookieOptions);
         return { error: null };
       },
       async signOut() {
