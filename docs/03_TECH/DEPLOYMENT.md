@@ -55,13 +55,31 @@ Recommended:
 Next.js
 ```
 
-Deploy on a platform supporting Next.js.
+Deploy on a platform supporting Next.js. The production setup is **Vercel**, as
+a project whose **Root Directory is `frontend/`**, from the same repository as
+the backend. Two projects, one repo:
+
+```text
+Vercel project "nyayalen"      -> Root Directory: frontend/
+Vercel project "nyaya-lens-api" -> Root Directory: backend/
+```
 
 The frontend should use environment variables for:
 
 ```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
 NEXT_PUBLIC_API_URL
 ```
+
+`NEXT_PUBLIC_*` values are inlined into the client bundle **at build time**, so
+they must be present in the project's build environment, not only at runtime.
+
+If `NEXT_PUBLIC_API_URL` is left empty, the browser instead calls the
+same-origin path `/backend/api/v1/...` and `next.config.ts` proxies it to
+`API_PROXY_TARGET`. That fallback needs no CORS configuration and is useful
+when the backend origin is not yet known, but every request then pays a
+server-side hop, so set `NEXT_PUBLIC_API_URL` for production.
 
 Never expose private backend secrets through `NEXT_PUBLIC_*` variables.
 
@@ -86,13 +104,65 @@ Recommended production process:
 
 ```text
 Build Docker Image
- ↓
+  ↓
 Run FastAPI
- ↓
+  ↓
 Health Check
- ↓
+  ↓
 Deploy
 ```
+
+## 4.1 Serverless deployment (Vercel)
+
+The FastAPI app is also deployable to Vercel as a **Python function**, with
+**Root Directory `backend/`**. This is the cheapest way to run the API and needs
+no container hosting, but it changes three things:
+
+1. **The app must be importable as an ASGI callable.** `backend/api/[[...path]].py`
+   is a standard-library bridge: it forwards the incoming Vercel request to the
+   FastAPI app (`app.main:app`) and streams the response back. No third-party
+   server adapter is required.
+2. **There is no long-lived process.** No in-process scheduler, no background
+   worker thread, no connection kept warm between requests. Everything must be
+   reachable from an HTTP request. See §11.
+3. **Configuration comes from environment variables only.** `backend/vercel.json`
+   pins the function (`maxDuration: 60`, 1 GB memory) and declares the scheduled
+   processing drain. `backend/.python-version` pins the runtime to the same
+   Python version CI uses.
+
+Required production environment variables for the backend project:
+
+```text
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_JWT_SECRET
+FRONTEND_URL
+BACKEND_URL
+CORS_ORIGINS           # the frontend's public origin
+CRON_SECRET            # REQUIRED in production; see §11
+ENVIRONMENT=production
+```
+
+Startup validation fails fast when a production deployment is missing a secret,
+so a misconfigured deploy returns a clear 5xx instead of failing silently on
+the first authenticated request.
+
+### Function limits to design around
+
+* **Request body size.** Vercel rejects large request bodies (about 4.5 MB).
+  The upload path therefore never streams a file through the API — see §6.1.
+* **Execution time.** A single invocation may run for at most `maxDuration`
+  seconds. Long document processing is started per document and polled, not
+  held open in one request.
+* **Ephemeral filesystem.** Nothing may be written to disk and expected to
+  survive between invocations; all durable state lives in Supabase.
+
+### Health check
+
+`GET /health` is exposed both at `/api/v1/health` and, via a rewrite in
+`backend/vercel.json`, at `/health` so it can be pointed at directly.
+
 
 ---
 
@@ -156,6 +226,8 @@ EMBEDDING_MODEL=
 EMBEDDING_API_URL=
 EMBEDDING_API_KEY=            # backend-only
 CORS_ORIGINS=                 # exactly the deployed frontend origin(s)
+CRON_SECRET=                  # guards the scheduled processing drain (§11)
+API_PROXY_TARGET=             # frontend-only, server-side; see §3
 ```
 
 Runtime behaviour when AI variables are unset: the API still serves all
@@ -274,6 +346,41 @@ python -m app.workers.document_worker --interval 30
 For MVP, this simple worker architecture is sufficient.
 
 Do not introduce unnecessary distributed infrastructure.
+
+## 11.1 Serverless processing (no long-lived worker)
+
+A serverless host cannot run `--interval` polling, so on Vercel the same pipeline
+is driven by requests instead. Two mechanisms, deliberately redundant:
+
+1. **Per-document kick.** The frontend calls
+   `POST /api/v1/documents/{id}/process` after a successful upload, and again if
+   a document is still `UPLOADED` on the processing screen. The endpoint is
+   owner-scoped and refuses any document that is not `UPLOADED`, so retries are
+   harmless.
+2. **Scheduled drain.** `backend/vercel.json` schedules a cron that calls
+   `POST /api/v1/internal/process-documents`, which processes a small batch of
+   `UPLOADED` rows (default 3, max 25). This is the safety net for kicks lost to
+   a dropped connection, a closed tab or a cold container.
+
+The internal endpoint refuses to start unless `CRON_SECRET` is configured, and
+then only accepts the secret Vercel sends with the cron invocation. Combined
+with the startup validation in §4.1, a production deployment cannot expose an
+unauthenticated way to trigger processing.
+
+Operational notes:
+
+* Cron schedules on Vercel are plan-dependent (Hobby permits one invocation per
+  day). If the schedule is rejected, the per-document kick still drives
+  processing; only the backlog safety net is lost.
+* Each invocation must finish inside `maxDuration`, so keep the batch small.
+* The pipeline is still single-consumer while `UPLOADED -> CLAIMING` claims are
+  in flight, so overlapping cron and kick invocations must not process the same
+  row twice — the claim step is what guarantees this.
+
+OCR caveat: Tesseract is a system binary and is not present on the serverless
+runtime. Image-based documents therefore end in `FAILED` with an honest error
+rather than fabricated text. PDF and DOCX extraction is unaffected. Deploy the
+backend to a container host (Docker, §9) if OCR must work in production.
 
 ---
 

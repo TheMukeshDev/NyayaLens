@@ -94,6 +94,13 @@ NEXT_PUBLIC_DEMO_MODE=true
 NEXT_PUBLIC_API_URL=https://nyaya-lens-ruby.vercel.app
 ```
 
+The demo login is:
+
+```text
+Email: demo@nyayalens.com
+Password: NyayaDemo2026!
+```
+
 The backend project root is `backend/` and must separately define its Supabase
 server credentials and `CORS_ORIGINS=https://nyayalen.vercel.app`. Never copy
 backend secrets into the frontend Vercel project. Set `NEXT_PUBLIC_DEMO_MODE`

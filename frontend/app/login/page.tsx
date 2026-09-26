@@ -4,6 +4,7 @@ import { Logo } from "@/components/logo";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
+import { DEMO_EMAIL, DEMO_PASSWORD, isDemoMode } from "@/lib/supabase/config";
 
 import { login } from "./actions";
 
@@ -30,6 +31,15 @@ export default async function LoginPage(props: PageProps<"/login">) {
         ) : null}
 
         {error ? <Alert kind="error" className="mt-6">{error}</Alert> : null}
+
+        {isDemoMode() ? (
+          <div className="mt-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-navy">
+            <p className="font-semibold">Demo access</p>
+            <p className="mt-1 text-xs text-muted">Use these credentials for the live demo:</p>
+            <p className="mt-2 font-mono text-xs">Email: {DEMO_EMAIL}</p>
+            <p className="font-mono text-xs">Password: {DEMO_PASSWORD}</p>
+          </div>
+        ) : null}
 
         <form action={login} className="mt-6 flex flex-col gap-4">
           <input type="hidden" name="next" value={next} />

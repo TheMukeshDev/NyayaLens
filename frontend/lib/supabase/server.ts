@@ -1,7 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-import { DEMO_USER_COOKIE, isDemoMode, supabaseConfig } from "./config";
+import {
+  DEMO_EMAIL,
+  DEMO_PASSWORD,
+  DEMO_USER_COOKIE,
+  isDemoMode,
+  supabaseConfig,
+} from "./config";
 
 /**
  * Supabase client for Server Components, Server Actions and Route Handlers.
@@ -69,8 +75,8 @@ function createDemoClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
         return { data: { session: { access_token: `demo-${email}` } }, error: null };
       },
       async signInWithPassword({ email, password }: { email: string; password: string }) {
-        if (!email || password.length < 6) {
-          return { error: { message: "Enter a valid email and a password of at least 6 characters." } };
+        if (email !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
+          return { error: { message: "Use the demo email and password shown below." } };
         }
         cookieStore.set(DEMO_USER_COOKIE, email, { httpOnly: true, sameSite: "lax", path: "/" });
         return { error: null };

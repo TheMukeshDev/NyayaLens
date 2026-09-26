@@ -84,7 +84,6 @@ const CORS_HEADERS = {
 };
 
 function send(res, status, body, extraHeaders = {}) {
-  process.stderr.write(`[mock] -> ${status} ${res.req?.method} ${res.req?.url}\n`);
   const payload = body === undefined ? "" : JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -671,9 +670,6 @@ async function handleApi(req, res, url) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", ORIGIN);
-  process.stderr.write(
-    `[mock] ${req.method} ${url.pathname} auth=${req.headers.authorization ? "yes" : "NO"}\n`,
-  );
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS_HEADERS);
