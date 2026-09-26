@@ -108,10 +108,11 @@ Password: NyayaDemo2026!
 ```
 
 The backend project root is `backend/` and must separately define its Supabase
-server credentials and `CORS_ORIGINS=https://nyayalen.vercel.app`. Never copy
-backend secrets into the frontend Vercel project. Set `NEXT_PUBLIC_DEMO_MODE`
-to `false` only after replacing the placeholder/stale Supabase URL and anon key
-with values from the active Supabase project.
+server credentials, `CRON_SECRET` (required in production) and
+`CORS_ORIGINS=https://nyayalen.vercel.app`. Never copy backend secrets into the
+frontend Vercel project. Set `NEXT_PUBLIC_DEMO_MODE` to `false` only after
+replacing the placeholder/stale Supabase URL and anon key with values from the
+active Supabase project.
 
 ## Documentation
 
