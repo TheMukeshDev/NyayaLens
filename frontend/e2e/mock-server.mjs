@@ -79,7 +79,7 @@ const CORS_HEADERS = {
 };
 
 function send(res, status, body, extraHeaders = {}) {
-  process.stdout.write(`[mock] -> ${status} ${res.req?.method} ${res.req?.url}\n`);
+  process.stderr.write(`[mock] -> ${status} ${res.req?.method} ${res.req?.url}\n`);
   const payload = body === undefined ? "" : JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -501,8 +501,10 @@ async function handleApi(req, res, url) {
 
     /* Start processing now (serverless hosts have no polling worker). */
     if (sub === "process" && req.method === "POST") {
-      entry.createdMs = Date.now() - PROCESSING_MS;
-      entry.row.status = "PROCESSING";
+      if (entry.row.status === "UPLOADED") {
+        entry.row.status = "PROCESSING";
+        entry.createdMs = Date.now();
+      }
       return send(res, 200, envelope(documentOut(entry)));
     }
 
@@ -664,7 +666,7 @@ async function handleApi(req, res, url) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", ORIGIN);
-  process.stdout.write(
+  process.stderr.write(
     `[mock] ${req.method} ${url.pathname} auth=${req.headers.authorization ? "yes" : "NO"}\n`,
   );
 

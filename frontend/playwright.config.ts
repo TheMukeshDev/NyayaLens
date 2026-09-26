@@ -59,6 +59,12 @@ export default defineConfig({
         NEXT_DIST_DIR: ".next-e2e",
         SUPABASE_URL: MOCK_URL,
         SUPABASE_ANON_KEY: "e2e-anon-key",
+        // The browser bundle only ever sees NEXT_PUBLIC_* values, and a developer's
+        // `.env.local` typically points those at a real project (or demo mode).
+        // Setting both spellings here is what actually keeps the suite hermetic.
+        NEXT_PUBLIC_SUPABASE_URL: MOCK_URL,
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "e2e-anon-key",
+        NEXT_PUBLIC_DEMO_MODE: "false",
         NEXT_PUBLIC_API_URL: MOCK_URL,
       },
     },
