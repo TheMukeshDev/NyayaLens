@@ -453,7 +453,8 @@ class TestActionBoard:
 
         assert board.follow_ups == []
         assert board.evidence_state == EvidenceState.INSUFFICIENT_EVIDENCE
-        assert board.abstention_reason is not None and "could not be completed" in board.abstention_reason
+        assert board.abstention_reason is not None
+        assert "could not be completed" in board.abstention_reason
         assert len(fake.rows_of("actions")) == 2  # checklist still persisted
 
     def test_list_actions_filters_and_update_status(self, fake):

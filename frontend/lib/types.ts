@@ -95,6 +95,19 @@ export interface DocumentStatusData {
   progress: number | null;
 }
 
+/** Short-lived ticket the browser PUTs the file bytes to. */
+export interface DocumentUploadTicket {
+  path: string;
+  token: string;
+  signed_url: string;
+  expires_in_seconds: number;
+}
+
+export interface UploadIntentData {
+  document: DocumentOut;
+  upload: DocumentUploadTicket;
+}
+
 export interface Pagination {
   page: number;
   limit: number;

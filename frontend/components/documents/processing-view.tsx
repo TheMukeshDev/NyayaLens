@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { FileText } from "lucide-react";
 
 import { RetryButton } from "@/components/documents/retry-button";
@@ -8,12 +9,21 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DocumentStatusBadge } from "@/components/ui/status";
+import { requestProcessing } from "@/lib/api/upload";
 import { PROCESSING_LABELS, documentStatusLabel } from "@/lib/constants";
 import type { DocumentOut, DocumentStatusData } from "@/lib/types";
 import { useApiData } from "@/lib/use-api-data";
 import { formatBytes } from "@/lib/format";
 
 const PROCESSING_POLL_MS = 4000;
+
+/**
+ * How long a document may sit in `UPLOADED` before we ask the backend to start
+ * processing it again. The upload flow already requests processing; this is the
+ * safety net for a request that was lost to a dropped connection, a navigating
+ * tab or a cold API container.
+ */
+const STALLED_UPLOAD_MS = 8000;
 
 function ProgressBar({ progress }: { progress: number | null }) {
   if (progress == null) {
@@ -43,9 +53,20 @@ export function ProcessingView({ document }: { document: DocumentOut }) {
     PROCESSING_POLL_MS,
   );
 
-  const ready = status?.status === "READY" || document.status === "READY";
-  const failed = status?.status === "FAILED" || document.status === "FAILED";
-  const label = documentStatusLabel(status?.status ?? document.status);
+  const currentStatus = status?.status ?? document.status;
+  const kickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (currentStatus !== "UPLOADED") return;
+    kickTimer.current = setTimeout(() => requestProcessing(document.id), STALLED_UPLOAD_MS);
+    return () => {
+      if (kickTimer.current) clearTimeout(kickTimer.current);
+    };
+  }, [currentStatus, document.id]);
+
+  const ready = currentStatus === "READY";
+  const failed = currentStatus === "FAILED";
+  const label = documentStatusLabel(currentStatus);
 
   return (
     <Card>
@@ -60,7 +81,7 @@ export function ProcessingView({ document }: { document: DocumentOut }) {
               <p className="mt-0.5 text-sm text-muted">{formatBytes(document.file_size_bytes)}</p>
             </div>
           </div>
-          <DocumentStatusBadge status={status?.status ?? document.status} />
+          <DocumentStatusBadge status={currentStatus} />
         </div>
 
         {ready ? (
@@ -94,7 +115,7 @@ export function ProcessingView({ document }: { document: DocumentOut }) {
               </div>
               <ProgressBar progress={status?.progress ?? null} />
               <p className="text-sm text-muted">
-                {status?.message ?? PROCESSING_LABELS[document.status] ?? "Processing your document…"}
+                {status?.message ?? PROCESSING_LABELS[currentStatus] ?? "Processing your document…"}
               </p>
             </div>
             <p className="flex items-center gap-2 text-sm text-muted">

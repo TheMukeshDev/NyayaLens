@@ -4,13 +4,21 @@ Polls for documents in ``UPLOADED`` state and runs them through the
 deterministic pipeline (extraction -> sections -> clauses -> entities ->
 chunks -> persistence -> embeddings). Run with::
 
-    python -m app.workers.document_worker [--limit N]
+    python -m app.workers.document_worker                 # one batch
+    python -m app.workers.document_worker --interval 30   # poll forever
     python -m app.workers.document_worker --ensure-embedding-index
 
 ``--ensure-embedding-index`` confirms the configured embedding model's
 dimension against the database and builds the pgvector HNSW index — it must be
 run once after the embedding model/dimension is configured (the vector
 dimension is never hardcoded in a migration).
+
+``--interval N`` runs the polling loop forever, sleeping ``N`` seconds between
+batches, and stops cleanly on ``SIGINT``/``SIGTERM`` (Ctrl+C included). Use it
+for the always-on single-instance worker (systemd unit, cron ``@reboot``, a
+container restart policy, etc.). Keep exactly one polling worker per project —
+it must not be scaled horizontally while using the ``UPLOADED -> CLAIMING``
+state machine.
 
 The worker is for server-side/queue execution only — it is never mounted on
 the HTTP application. Document content is never written to logs.
@@ -19,7 +27,10 @@ the HTTP application. Document content is never written to logs.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
+import signal
+import threading
 
 from app.ai.analysis.service import DocumentUnderstandingService, StructuredLLM
 from app.ai.embeddings.provider import EmbeddingProvider, build_embedding_provider
@@ -109,7 +120,7 @@ def _build_llm() -> StructuredLLM | None:
     document pipeline still runs: the analysis layer then records honest
     ``FAILED`` analyses instead of fabricating understanding.
     """
-    if not settings.llm_model or not settings.llm_api_url:
+    if not settings.llm_enabled or not settings.llm_model or not settings.llm_api_url:
         return None
     return build_llm_provider(
         provider=settings.llm_provider,
@@ -145,6 +156,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Process pending legal documents.")
     parser.add_argument("--limit", type=int, default=10, help="maximum documents per run")
     parser.add_argument(
+        "--interval",
+        type=int,
+        default=0,
+        help="polling interval in seconds; 0 runs once and exits (default)",
+    )
+    parser.add_argument(
         "--ensure-embedding-index",
         action="store_true",
         help="confirm the embedding dimension and build the vector index",
@@ -170,12 +187,55 @@ def main() -> None:
         return
 
     service = build_default_service()
-    completed, failed = process_pending(
-        document_repository=DocumentRepository(client=client),
+    repository = DocumentRepository(client=client)
+    if args.interval <= 0:
+        completed, failed = process_pending(
+            document_repository=repository,
+            processing_service=service,
+            limit=args.limit,
+        )
+        logger.info("processed %s document(s); %s failed", completed, failed)
+        return
+
+    _poll_forever(
+        document_repository=repository,
         processing_service=service,
         limit=args.limit,
+        interval=args.interval,
     )
-    logger.info("processed %s document(s); %s failed", completed, failed)
+
+
+def _poll_forever(
+    *,
+    document_repository: DocumentRepository,
+    processing_service: DocumentProcessingService,
+    limit: int,
+    interval: int,
+) -> None:
+    """Run the poll loop until SIGINT/SIGTERM, sleeping *interval* between runs."""
+    stop_event = threading.Event()
+
+    def request_stop(_signum: int, _frame: object) -> None:
+        stop_event.set()
+
+    # Unavailable signals (e.g. SIGTERM on Windows) are simply skipped.
+    with contextlib.suppress(ValueError, OSError):
+        signal.signal(signal.SIGTERM, request_stop)
+    with contextlib.suppress(ValueError, OSError):
+        signal.signal(signal.SIGINT, request_stop)
+
+    logger.info(
+        "worker polling every %ss for pending documents (Ctrl+C to stop)", interval
+    )
+    while not stop_event.is_set():
+        completed, failed = process_pending(
+            document_repository=document_repository,
+            processing_service=processing_service,
+            limit=limit,
+        )
+        logger.info("processed %s document(s); %s failed", completed, failed)
+        stop_event.wait(interval)
+    logger.info("worker stopped cleanly")
 
 
 if __name__ == "__main__":

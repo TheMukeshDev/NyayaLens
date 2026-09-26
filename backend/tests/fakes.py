@@ -48,8 +48,9 @@ def _row_key(column: str) -> Any:
 class FakeResponse:
     """Mimics ``postgrest``'s response object: ``.data`` holds rows."""
 
-    def __init__(self, data: list[dict[str, Any]]) -> None:
+    def __init__(self, data: list[dict[str, Any]], count: int | None = None) -> None:
         self.data = data
+        self.count = count
 
 
 class FakeQuery:
@@ -62,13 +63,17 @@ class FakeQuery:
         self._orders: list[tuple[str, bool]] = []
         self._select: tuple[str, ...] | None = None
         self._limit: int | None = None
+        self._range: tuple[int, int] | None = None
+        self._count: str | None = None
         self._inserted: list[dict[str, Any]] | None = None
         self._update: dict[str, Any] | None = None
         self._delete = False
 
-    def select(self, *columns: str) -> FakeQuery:
+    def select(self, *columns: str, count: str | None = None) -> FakeQuery:
         if columns and list(columns) != ["*"]:
             self._select = tuple(columns)
+        if count:
+            self._count = count
         return self
 
     def eq(self, column: str, value: Any) -> FakeQuery:
@@ -85,6 +90,10 @@ class FakeQuery:
 
     def limit(self, amount: int) -> FakeQuery:
         self._limit = amount
+        return self
+
+    def range(self, start: int, end: int) -> FakeQuery:
+        self._range = (start, end)
         return self
 
     def order(self, column: str, *, desc: bool = False) -> FakeQuery:
@@ -143,10 +152,14 @@ class FakeQuery:
             return FakeResponse([dict(row) for row in deleted])
 
         rows = [row for row in self._rows() if self._matches(row)]
+        total = len(rows) if self._count else None
         for column, desc in reversed(self._orders):
             rows.sort(key=_row_key(column), reverse=desc)
         if self._limit is not None:
             rows = rows[: self._limit]
+        if self._range is not None:
+            start, end = self._range
+            rows = rows[start : end + 1]
 
         if self._update is not None:
             payload, self._update = dict(self._update), None
@@ -159,10 +172,11 @@ class FakeQuery:
 
         if self._select is not None:
             return FakeResponse(
-                [{column: row.get(column) for column in self._select} for row in rows]
+                [{column: row.get(column) for column in self._select} for row in rows],
+                count=total,
             )
 
-        return FakeResponse([dict(row) for row in rows])
+        return FakeResponse([dict(row) for row in rows], count=total)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +214,17 @@ class FakeBucket:
             self.fail_next_sign = False
             raise RuntimeError("network failure")
         return {"signedURL": f"/object/sign/{path}?token=abc"}
+
+    def create_signed_upload_url(self, path: str) -> dict[str, str]:
+        """Mimic Supabase's single-use upload ticket (a PUT target for bytes)."""
+        if self.fail_next_sign:
+            self.fail_next_sign = False
+            raise RuntimeError("network failure")
+        return {
+            "path": path,
+            "token": "upload-token",
+            "signedUrl": f"/object/upload/sign/{path}?token=upload-token",
+        }
 
     def remove(self, paths: list[str]) -> list[dict[str, str]]:
         self.removed.extend(paths)

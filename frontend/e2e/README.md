@@ -25,7 +25,7 @@ npx playwright install chromium chromium-headless-shell
    `@supabase/ssr`'s auth calls (`/auth/v1/*`) and the FastAPI backend
    (`/api/v1/*`).
 2. **The Next.js dev server** (port `3100`), started with
-   `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_API_URL` pointed at the mock and
+   `SUPABASE_URL` and `NEXT_PUBLIC_API_URL` pointed at the mock and
    `NEXT_DIST_DIR=.next-e2e` so it can coexist with a dev server you already have
    open (Next 16 permits only one `next dev` per project directory).
 

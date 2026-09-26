@@ -151,3 +151,15 @@ class DocumentUnderstandingOut(BaseModel):
     attention_items: list[AttentionItemOut] = Field(default_factory=list)
     abstention_reason: str | None = None
     analysis_unavailable: str | None = None
+
+
+class AttentionListData(BaseModel):
+    """Attention items for one document (API-Specification §14)."""
+
+    items: list[AttentionItemOut] = Field(default_factory=list)
+
+
+class ClauseListData(BaseModel):
+    """Detected/analyzed clauses for one document (API-Specification §12)."""
+
+    clauses: list[ImportantClause] = Field(default_factory=list)

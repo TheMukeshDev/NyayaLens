@@ -23,10 +23,10 @@ You should receive an acknowledgement within 72 hours.
 
 ## Security Design (summary)
 
-See `DOCS/05_SECURITY/SECURITY-Architecture.md` for the canonical architecture. Key rules:
+See `docs/05_SECURITY/SECURITY-Architecture.md` for the canonical architecture. Key rules:
 
 - Every data query is scoped to the authenticated user (`document.owner_id == current_user.id`).
-- Uploaded files are treated as untrusted (size, MIME, structure validation + malware scan).
+- Uploaded files are treated as untrusted: size, MIME and structure validation on upload; document text is only ever used inside the processing pipeline. **Malware scanning is NOT yet implemented** — do not rely on the uploader as an antivirus boundary.
 - Document objects are never permanently public; use short-lived signed URLs.
 - Secrets never enter the repository; only `.env.example` is committed.
 - Logs must not contain legal document content, passwords, tokens, or API keys.

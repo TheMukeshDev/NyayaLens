@@ -2,6 +2,13 @@ import type { ApiError, SuccessResponse } from "@/lib/types";
 
 export const API_BASE = "/api/v1";
 
+/**
+ * Same-origin path the API is proxied through when NEXT_PUBLIC_API_URL is unset.
+ * `next.config.ts` rewrites this prefix to `API_PROXY_TARGET`, so the browser
+ * never makes a cross-origin request and CORS is not involved at all.
+ */
+const API_PROXY_PREFIX = "/backend";
+
 export interface ApiResult<T> {
   ok: boolean;
   status: number;
@@ -11,7 +18,8 @@ export interface ApiResult<T> {
 }
 
 export function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
+  const configured = (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
+  return configured || API_PROXY_PREFIX;
 }
 
 /** Parses the standard backend envelope, never throwing on bad responses. */

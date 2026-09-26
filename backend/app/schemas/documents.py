@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DocumentStatus(StrEnum):
@@ -54,6 +54,44 @@ class UploadDocumentData(BaseModel):
     document: DocumentOut
 
 
+class UploadIntentRequest(BaseModel):
+    """Client-declared upload metadata for a direct-to-storage upload.
+
+    These values are a pre-check only: ``complete_upload`` re-validates the
+    stored object's magic bytes, real size and checksum server-side, so nothing
+    declared here is ever trusted as the record of what was uploaded.
+    """
+
+    filename: str = Field(min_length=1, max_length=400)
+    size_bytes: int = Field(ge=1)
+
+
+class DocumentUploadTicket(BaseModel):
+    """Short-lived signed URL a browser ``PUT``s the file bytes to.
+
+    Issued for exactly one reserved object key, which is why the file never has
+    to pass through the API process.
+    """
+
+    path: str
+    token: str
+    signed_url: str
+    expires_in_seconds: int
+
+
+class UploadIntentData(BaseModel):
+    document: DocumentOut
+    upload: DocumentUploadTicket
+
+
+class ProcessBatchData(BaseModel):
+    """Result of one drained batch of pending documents (internal endpoint)."""
+
+    completed: int
+    failed: int
+    limit: int
+
+
 class DocumentStatusData(BaseModel):
     """Processing status payload (API-Specification §11)."""
 
@@ -61,3 +99,19 @@ class DocumentStatusData(BaseModel):
     status: DocumentStatus
     message: str | None = None
     progress: int | None = None
+
+
+class Pagination(BaseModel):
+    """Standard list pagination (API-Specification §27)."""
+
+    page: int
+    limit: int
+    total: int
+    pages: int
+
+
+class DocumentListData(BaseModel):
+    """The authenticated user's documents (API-Specification §8)."""
+
+    items: list[DocumentOut] = Field(default_factory=list)
+    pagination: Pagination

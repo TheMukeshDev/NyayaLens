@@ -6,7 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
  * The suite is hermetic: instead of a live Supabase project and FastAPI
  * backend, `e2e/mock-server.mjs` serves both `/auth/v1/*` (Supabase Auth) and
  * `/api/v1/*` (NyayaLens API). The Next.js dev server is started with
- * `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_API_URL` pointed at that mock, so the
+ * `SUPABASE_URL` / `NEXT_PUBLIC_API_URL` pointed at that mock, so the
  * complete signup -> report journey runs through the real UI with no external
  * dependencies. The seeded test user is defined in `e2e/fixtures.ts`.
  */
@@ -57,8 +57,8 @@ export default defineConfig({
         // A separate build dir lets this dev server coexist with any dev server
         // the developer already has open (Next 16 allows one per project dir).
         NEXT_DIST_DIR: ".next-e2e",
-        NEXT_PUBLIC_SUPABASE_URL: MOCK_URL,
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: "e2e-anon-key",
+        SUPABASE_URL: MOCK_URL,
+        SUPABASE_ANON_KEY: "e2e-anon-key",
         NEXT_PUBLIC_API_URL: MOCK_URL,
       },
     },

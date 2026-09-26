@@ -32,8 +32,6 @@ function Section({
 }
 
 export default async function DashboardPage() {
-  // Documents (API-Spec §8). The endpoint may not be implemented yet; until it
-  // exists this renders the standard empty state so the page handles both.
   const documentsResult = await serverApi<DocumentListData>("/documents");
   const documents = documentsResult.ok && documentsResult.data ? documentsResult.data.items : [];
   const errored = !documentsResult.ok && documentsResult.status !== 0;

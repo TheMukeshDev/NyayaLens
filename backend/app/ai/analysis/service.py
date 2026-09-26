@@ -292,6 +292,30 @@ class DocumentUnderstandingService:
 
     # -- read path (assembles the persisted feature set) -------------------
 
+    def get_summary(self, *, document_id: UUID) -> UnderstandingSummary | None:
+        """Return the persisted plain-language summary, or ``None``."""
+        return _summary_of(
+            self._analyses.latest(document_id, AnalysisType.SUMMARY.value)
+        )
+
+    def get_important_clauses(
+        self, *, document_id: UUID
+    ) -> list[ImportantClause]:
+        """Return the persisted clause analysis with evidence references."""
+        clause_row = self._analyses.latest(
+            document_id, AnalysisType.CLAUSE_EXTRACTION.value
+        )
+        section_rows = self._processing.list_sections(document_id)
+        clause_rows = self._processing.list_clauses(document_id)
+        return _important_clauses_of(clause_row, section_rows, clause_rows)
+
+    def get_attention_items(self, *, document_id: UUID) -> list[AttentionItemOut]:
+        """Return the persisted areas requiring attention."""
+        attention_row = self._analyses.latest(
+            document_id, AnalysisType.ATTENTION_ANALYSIS.value
+        )
+        return self._attention_items(attention_row, document_id)
+
     def get_understanding(self, *, document_id: UUID) -> DocumentUnderstandingOut:
         """Assemble the full understanding feature set from persisted rows.
 

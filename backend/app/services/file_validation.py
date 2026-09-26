@@ -124,6 +124,41 @@ def _invalid(code: str, status_code: int, message: str) -> ValidationOutcome:
     )
 
 
+def validate_upload_declaration(filename: str, size_bytes: int) -> ValidationOutcome:
+    """Validate the name and size a client declares *before* sending any bytes.
+
+    Used by the direct-to-storage upload flow: the API signs an upload URL from
+    this declaration instead of buffering the file. The declaration is a cheap
+    pre-check only -- the authoritative type/size check is the magic-byte
+    validation :func:`validate_uploaded_file` runs once the object is stored.
+    """
+    if not filename:
+        return _invalid(ErrorCodes.INVALID_FILE, 400, "A file is required.")
+
+    extension = _extension_of(sanitize_filename(filename))
+    if extension not in _FILE_TYPES or extension not in _configured_extensions():
+        return _invalid(
+            ErrorCodes.UNSUPPORTED_FILE_TYPE,
+            415,
+            "Unsupported file type. Supported types: PDF, DOCX, JPG, PNG.",
+        )
+
+    if size_bytes <= 0:
+        return _invalid(ErrorCodes.INVALID_FILE, 400, "The uploaded file is empty.")
+
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if size_bytes > max_bytes:
+        return _invalid(
+            ErrorCodes.FILE_TOO_LARGE,
+            413,
+            f"The uploaded file exceeds the maximum allowed size of "
+            f"{settings.max_upload_size_mb} MB.",
+        )
+
+    mime_type, _magic = _FILE_TYPES[extension]
+    return ValidationOutcome(valid=True, mime_type=mime_type, extension=extension)
+
+
 def validate_uploaded_file(filename: str, content: bytes) -> ValidationOutcome:
     """Validate an uploaded file against type, magic bytes and size limits.
 

@@ -168,6 +168,33 @@ class TestSupabaseDocumentStorage:
         assert captured["options"]["content-type"] == "application/pdf"
         assert captured["options"]["upsert"] == "true"
 
+    def test_original_key_is_derived_not_supplied(self):
+        user_id = uuid.uuid4()
+        document_id = uuid.uuid4()
+        storage = _make()
+        assert storage.original_key(user_id=user_id, document_id=document_id) == (
+            f"users/{user_id}/documents/{document_id}/original"
+        )
+
+    def test_create_signed_upload_url_returns_single_object_ticket(self):
+        storage = _make()
+        key = storage.original_key(user_id=uuid.uuid4(), document_id=uuid.uuid4())
+
+        ticket = storage.create_signed_upload_url(key)
+
+        assert ticket.path == key
+        assert ticket.token == "upload-token"
+        assert ticket.signed_url == f"/object/upload/sign/{key}?token=upload-token"
+        # Signing must not create or read an object.
+        assert storage._bucket_api().objects == {}
+
+    def test_create_signed_upload_url_failure_raises_generic_storage_error(self):
+        storage = _make()
+        storage._bucket_api().fail_next_sign = True
+
+        with pytest.raises(StorageError):
+            storage.create_signed_upload_url("users/u/documents/d/original")
+
     def test_read_returns_object_bytes(self):
         storage = _make()
         key = storage.store_original(

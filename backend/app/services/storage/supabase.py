@@ -27,9 +27,24 @@ from supabase import Client
 from app.core.errors import DocumentNotFoundError, StorageError
 from app.core.supabase import get_supabase_client
 
-from .base import DocumentStorage
+from .base import DocumentStorage, SignedUpload
 
 logger = logging.getLogger("app.storage")
+
+
+def _first_str_field(response: Any, *names: str) -> str | None:
+    """Return the first non-empty string value among *names* in a dict response.
+
+    The Supabase storage API has used several spellings for the same fields
+    across client versions, so callers list every accepted key.
+    """
+    if not isinstance(response, dict):
+        return None
+    for name in names:
+        value = response.get(name)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 class SupabaseDocumentStorage(DocumentStorage):
@@ -60,6 +75,28 @@ class SupabaseDocumentStorage(DocumentStorage):
         return f"users/{user_id}/documents/{document_id}/reports/{report_id}.txt"
 
     # -- DocumentStorage -----------------------------------------------------
+
+    def original_key(self, *, user_id: UUID, document_id: UUID) -> str:
+        return self._object_key(user_id, document_id)
+
+    def create_signed_upload_url(self, storage_key: str) -> SignedUpload:
+        """Sign a single-use upload URL so the browser writes bytes directly.
+
+        The signed URL is a bearer credential for exactly one object, so it is
+        never logged and never returned from a list/read endpoint.
+        """
+        try:
+            response = self._bucket_api().create_signed_upload_url(storage_key)
+        except Exception:
+            logger.error("Supabase Storage sign-upload failed", exc_info=True)
+            raise StorageError() from None
+
+        token = _first_str_field(response, "token")
+        signed_url = _first_str_field(response, "signedUrl", "signed_url", "signedURL", "url")
+        if not token or not signed_url:
+            logger.error("Supabase Storage sign-upload returned incomplete data")
+            raise StorageError()
+        return SignedUpload(path=storage_key, token=token, signed_url=signed_url)
 
     def store_original(
         self,
@@ -109,6 +146,7 @@ class SupabaseDocumentStorage(DocumentStorage):
             raise StorageError()
         return signed
 
+
     def delete(self, storage_key: str) -> None:
         try:
             self._bucket_api().remove([storage_key])
@@ -143,15 +181,9 @@ class SupabaseDocumentStorage(DocumentStorage):
 
     @staticmethod
     def _signed_url_from(response: Any) -> str | None:
-        if isinstance(response, dict):
-            for field in ("signedURL", "signed_url", "signedUrl"):
-                value = response.get(field)
-                if isinstance(value, str) and value:
-                    return value
-            return None
-        if isinstance(response, str) and response:
-            return response
-        return None
+        return _first_str_field(response, "signedURL", "signed_url", "signedUrl") or (
+            response if isinstance(response, str) and response else None
+        )
 
     @staticmethod
     def _is_not_found(exc: Exception) -> bool:

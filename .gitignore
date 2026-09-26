@@ -49,3 +49,6 @@ postgres_data/
 *.docx
 large datasets/
 model weights/
+
+# ---- Preview / tool cruft ----
+.freebuff/

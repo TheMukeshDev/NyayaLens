@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     frontend_url: str | None = None
     backend_url: str | None = None
 
+    # Shared secret guarding the internal (non-user-facing) endpoints, notably
+    # the scheduled document-processing drain. Vercel sends it automatically as
+    # `Authorization: Bearer $CRON_SECRET` on cron invocations. It is never a
+    # NEXT_PUBLIC_ variable, and the endpoints stay disabled when it is unset so
+    # they can never become an unauthenticated privileged surface.
+    cron_secret: str = ""
+
     # AI embeddings + retrieval (docs/04_AI/AI-Architecture.md §16,
     # docs/04_AI/RAG-Architecture.md §6-§12). The vector dimension is NOT
     # hardcoded in the database until the model is configured: see
@@ -108,6 +115,9 @@ class Settings(BaseSettings):
     # hardcoded. API keys are backend-only and must never be exposed to the
     # frontend (like the Supabase service-role key).
     llm_provider: str = "openai-compatible"
+    # Set false for hosted demos or quota outages; AI features abstain without
+    # making upstream model requests.
+    llm_enabled: bool = True
     llm_model: str = ""
     # OpenAI-compatible chat-completions endpoint (provider = "openai-compatible").
     llm_api_url: str = ""
@@ -250,6 +260,7 @@ class Settings(BaseSettings):
                     "SUPABASE_URL": self.supabase_url,
                     "SUPABASE_SERVICE_ROLE_KEY": self.supabase_service_role_key,
                     "SUPABASE_JWT_SECRET": self.supabase_jwt_secret,
+                "CRON_SECRET": self.cron_secret,
                 }.items()
                 if not value or value.startswith("YOUR_")
             ]
@@ -259,7 +270,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _require_production_ai_config(self) -> Settings:
-        if not self.is_production:
+        if not self.is_production or not self.llm_enabled:
             return self
         missing = [
             name

@@ -66,10 +66,12 @@ Verification checklist requested by the task:
 - Raw report: `%TEMP%\opencode\a11y\axe-report.json`.
 - These live outside the repo so no dependency or script was added to `package.json`.
 
-The project has **no accessibility test framework of its own**. `eslint-config-next` enables only
-six `jsx-a11y` rules (`alt-text`, `aria-props`, `aria-proptypes`, `aria-unsupported-elements`,
-`role-has-required-aria-props`, `role-supports-aria-props`); `npm run lint` passes. Axe was used
-as the primary automated scanner because it is already present transitively via `axe-core`.
+The project **also** has an in-repo a11y harness that runs in CI: `eslint-config-next`
+enables six `jsx-a11y` rules (`alt-text`, `aria-props`, `aria-proptypes`,
+`aria-unsupported-elements`, `role-has-required-aria-props`, `role-supports-aria-props`),
+and `npm test` runs `frontend/tests/a11y.test.tsx` (8 axe-core tests over shared UI
+primitives via `frontend/tests/axe.ts`) — all pass. Axe was used as the primary automated
+scanner because it is already present transitively via `axe-core`.
 
 ### axe results (final run)
 
@@ -237,7 +239,7 @@ These are explicitly **not** claims of compliance.
 
 ## 6. Recommendations before claiming full WCAG 2.1 AA
 
-1. Add an authenticated axe scan (seed a test user/session) and run it in CI.
+1. Add an authenticated axe scan (seed a test user/session) and run it in CI. *Progress: a hermetic Playwright E2E now drives the authenticated pages against a mock (`frontend/e2e/`), so an axe step can be added there; the Vitest axe suite covers the shared UI primitives (`frontend/tests/a11y.test.tsx`).*
 2. Run a scripted Playwright/Puppeteer keyboard walkthrough of the authed flows, including the
    mobile drawer.
 3. Perform at least one manual screen-reader pass (NVDA on Windows is the closest to this stack).

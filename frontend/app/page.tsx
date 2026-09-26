@@ -71,6 +71,10 @@ export default function MarketingHomePage() {
             claim backed by a citation you can verify.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button href="/workspace" variant="secondary" size="lg">
+              Try the live demo
+              <Sparkles className="size-4" aria-hidden="true" />
+            </Button>
             <Button href="/signup" size="lg">
               Get started free
               <ArrowRight className="size-4" aria-hidden="true" />

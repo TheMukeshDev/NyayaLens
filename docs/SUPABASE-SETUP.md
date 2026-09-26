@@ -80,7 +80,7 @@ To find it:
 1. Dashboard → **Project Settings** → **API**.
 2. Copy the **Project URL**.
 3. Use this value for:
-   - `NEXT_PUBLIC_SUPABASE_URL` (frontend)
+   - `SUPABASE_URL` (frontend)
    - `SUPABASE_URL` (backend)
 
 ---
@@ -93,7 +93,7 @@ To find it:
 
 1. Dashboard → **Project Settings** → **API**.
 2. Under **Project API keys**, copy the **publishable** key (labeled `anon` in older docs; the new name is the same safe-to-expose key).
-3. Use this value for `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+3. Use this value for `SUPABASE_ANON_KEY`.
 
 Security notes:
 
@@ -208,8 +208,8 @@ Never create a real `.env` with secrets that gets committed. Use placeholders lo
 ### Frontend (`frontend/.env.local`, git-ignored)
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable-key>
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<publishable-key>
 ```
 
 ### Backend (`backend/.env`, git-ignored)
@@ -245,8 +245,8 @@ Set these in your hosting provider's secret manager (never in the repo).
 
 | Variable | Value |
 | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | publishable key |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_ANON_KEY` | publishable key |
 
 > `NEXT_PUBLIC_*` values are inlined at build time. There is no way to safely embed the service-role key here — do not try.
 
@@ -265,7 +265,7 @@ Set these in your hosting provider's secret manager (never in the repo).
 
 # 12. Security Checklist
 
-- [ ] Project URL stored as `SUPABASE_URL` (backend) and `NEXT_PUBLIC_SUPABASE_URL` (frontend)
+- [ ] Project URL stored as `SUPABASE_URL` (backend) and `SUPABASE_URL` (frontend)
 - [ ] Publishable key only in frontend
 - [ ] Service-role key only in backend/server environment
 - [ ] No secrets in committed files; only `.env.example` committed

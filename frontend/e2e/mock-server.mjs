@@ -5,7 +5,7 @@
  *   - NyayaLens API   (`/api/v1/*`)    — the FastAPI backend
  *
  * Playwright starts this process (see `playwright.config.ts`) and points the
- * Next.js dev server at it via `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_API_URL`.
+ * Next.js dev server at it via `SUPABASE_URL` / `NEXT_PUBLIC_API_URL`.
  * That lets the whole signup -> report journey run end to end through the real
  * UI, deterministically, with no live Supabase project, database, or AI keys.
  *
@@ -37,6 +37,9 @@ const documents = new Map();
 const actions = new Map();
 const reports = new Map();
 const comparisons = new Map();
+
+/** Object "storage" behind the signed upload URLs handed out by /upload-intent. */
+const uploadedObjects = new Map();
 
 function seed() {
   usersByEmail.set(SEEDED_USER.email, { ...SEEDED_USER });
@@ -76,6 +79,7 @@ const CORS_HEADERS = {
 };
 
 function send(res, status, body, extraHeaders = {}) {
+  process.stdout.write(`[mock] -> ${status} ${res.req?.method} ${res.req?.url}\n`);
   const payload = body === undefined ? "" : JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -415,44 +419,61 @@ async function handleApi(req, res, url) {
   }
 
   /* ----- Documents ----- */
-  if (segments[0] === "documents" && segments.length === 1) {
-    if (req.method === "GET") {
-      const items = [...documents.values()]
-        .filter((entry) => entry.ownerId === user.id)
-        .map(documentOut);
-      return send(
-        res,
-        200,
-        envelope({
-          items,
-          pagination: { page: 1, limit: 20, total: items.length, pages: 1 },
-        }),
-      );
+  if (path === "/documents/upload-intent" && req.method === "POST") {
+    const { filename, size_bytes } = JSON.parse((await readBody(req)).toString() || "{}");
+    if (typeof size_bytes !== "number" || size_bytes <= 0) {
+      return apiError(res, 400, "INVALID_FILE", "A file is required.");
     }
-    if (req.method === "POST") {
-      const raw = (await readBody(req)).toString("latin1");
-      const nameMatch = raw.match(/filename="([^"]*)"/);
-      const filename = nameMatch ? nameMatch[1] : "upload.pdf";
-      const id = randomUUID();
-      const now = new Date().toISOString();
-      const row = {
-        id,
-        filename,
-        display_name: null,
-        mime_type: "application/pdf",
-        file_size_bytes: raw.length,
-        status: "UPLOADED",
-        processing_error: null,
-        page_count: null,
-        checksum_sha256: "b".repeat(64),
-        uploaded_at: now,
-        created_at: now,
-        updated_at: now,
-      };
-      const entry = { row, createdMs: Date.now(), ownerId: user.id };
-      documents.set(id, entry);
-      return send(res, 201, envelope({ document: documentOut(entry) }));
+    if (!/\.(pdf|docx|jpe?g|png)$/i.test(String(filename ?? ""))) {
+      return apiError(res, 415, "UNSUPPORTED_FILE_TYPE", "Unsupported file type.");
     }
+    const id = randomUUID();
+    const storageKey = `users/${user.id}/documents/${id}/original`;
+    const now = new Date().toISOString();
+    const row = {
+      id,
+      filename,
+      display_name: null,
+      mime_type: "application/pdf",
+      // The declared size until /complete verifies the stored bytes.
+      file_size_bytes: size_bytes,
+      status: "UPLOADED",
+      processing_error: null,
+      page_count: null,
+      checksum_sha256: null,
+      uploaded_at: now,
+      created_at: now,
+      updated_at: now,
+    };
+    const entry = { row, createdMs: Date.now(), ownerId: user.id, storageKey };
+    documents.set(id, entry);
+    return send(
+      res,
+      201,
+      envelope({
+        document: documentOut(entry),
+        upload: {
+          path: storageKey,
+          token: "mock-upload-token",
+          signed_url: `${ORIGIN}/object/upload/sign/${storageKey}?token=mock-upload-token`,
+          expires_in_seconds: 900,
+        },
+      }),
+    );
+  }
+
+  if (segments[0] === "documents" && segments.length === 1 && req.method === "GET") {
+    const items = [...documents.values()]
+      .filter((entry) => entry.ownerId === user.id)
+      .map(documentOut);
+    return send(
+      res,
+      200,
+      envelope({
+        items,
+        pagination: { page: 1, limit: 20, total: items.length, pages: 1 },
+      }),
+    );
   }
 
   if (segments[0] === "documents" && segments.length >= 2) {
@@ -462,6 +483,26 @@ async function handleApi(req, res, url) {
     const sub = segments[2];
 
     if (!sub && req.method === "GET") {
+      return send(res, 200, envelope(documentOut(entry)));
+    }
+
+    /* Complete the direct-to-storage upload: verify the bytes really landed. */
+    if (sub === "complete" && req.method === "POST") {
+      const stored = uploadedObjects.get(entry.storageKey);
+      if (!stored) {
+        entry.row.status = "FAILED";
+        entry.row.processing_error = "The uploaded file was not received.";
+        return apiError(res, 400, "INVALID_FILE", "The uploaded file was not received.");
+      }
+      entry.row.file_size_bytes = stored.length;
+      entry.row.checksum_sha256 = "b".repeat(64);
+      return send(res, 200, envelope(documentOut(entry)));
+    }
+
+    /* Start processing now (serverless hosts have no polling worker). */
+    if (sub === "process" && req.method === "POST") {
+      entry.createdMs = Date.now() - PROCESSING_MS;
+      entry.row.status = "PROCESSING";
       return send(res, 200, envelope(documentOut(entry)));
     }
 
@@ -623,6 +664,9 @@ async function handleApi(req, res, url) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", ORIGIN);
+  process.stdout.write(
+    `[mock] ${req.method} ${url.pathname} auth=${req.headers.authorization ? "yes" : "NO"}\n`,
+  );
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS_HEADERS);
@@ -633,6 +677,15 @@ const server = createServer(async (req, res) => {
   }
 
   try {
+    // Stand-in for Supabase Storage's single-use signed upload target: the
+    // browser PUTs the file bytes here instead of through the API. Kept outside
+    // the auth mock because the signed URL is itself the credential.
+    if (req.method === "PUT" && url.pathname.startsWith("/object/upload/sign/")) {
+      const bytes = await readBody(req);
+      uploadedObjects.set(decodeURIComponent(url.pathname.split("/object/upload/sign/")[1]), bytes);
+      res.writeHead(200, { ...CORS_HEADERS, "x-upsert": "false" });
+      return res.end();
+    }
     if (url.pathname.startsWith("/auth/v1")) return await handleAuth(req, res, url);
     if (url.pathname.startsWith("/api/v1")) return await handleApi(req, res, url);
     return send(res, 404, { error: "not_found", path: url.pathname });

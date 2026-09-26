@@ -472,9 +472,13 @@ alter table public.audit_logs enable row level security;
 -- ============================================================
 -- Grants
 -- ============================================================
--- Keep column-level access tight but functional for the frontend/browser
--- Supabase client where user-scoped operations are legitimate.
--- storage_key and audit_logs are NOT exposed to clients.
+-- Table-level grants keep the frontend/browser Supabase client functional for
+-- user-scoped operations. RLS policies restrict every access to the owner's
+-- own rows, so privacy-sensitive columns are only ever visible on rows the
+-- client already owns. `audit_logs` gets no grants at all (service role only).
+-- Note: `storage_key` is NOT column-restricted; a client can read it only on
+-- rows the RLS policies permit it to access. Files stay protected because the
+-- storage bucket is private and downloads go through short-lived signed URLs.
 grant usage on schema public to authenticated;
 
 grant select, insert, update, delete on public.users to authenticated;

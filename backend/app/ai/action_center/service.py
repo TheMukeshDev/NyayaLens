@@ -923,7 +923,7 @@ def build_action_center_service(
 
 def _build_llm() -> StructuredLLM | None:
     """Build the configured LLM provider, or ``None`` when not configured."""
-    if not settings.llm_model or not settings.llm_api_url:
+    if not settings.llm_enabled or not settings.llm_model or not settings.llm_api_url:
         return None
     from app.ai.llm.provider import build_llm_provider
 

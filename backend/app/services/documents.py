@@ -4,6 +4,19 @@ Workflow (docs/02_UX/USER-Flows.md §4 + §5):
 
     upload -> validate -> private storage -> record -> status
 
+Uploads are two-step so the API never buffers a file body:
+
+    1. ``create_upload_intent`` -- pre-check the client declaration, reserve a
+       per-user object key, sign a short-lived upload URL, record the document
+       in ``UPLOADED``.
+    2. the browser ``PUT``s the bytes straight to private storage.
+    3. ``complete_upload`` -- read the object back and validate its magic bytes,
+       real size and SHA-256 checksum server-side, then finalize the record.
+
+That split exists because the API runs on a serverless platform with a hard
+request-body limit far below ``MAX_UPLOAD_SIZE_MB``; only the verified object
+is ever trusted (see AGENT.md "no fake implementations" / FR-003).
+
 Responsibilities:
 
 * Validate the untrusted file (MIME, extension, size, filename, content
@@ -22,11 +35,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.core.config import settings
 from app.core.errors import (
     ApiError,
     ConflictError,
@@ -40,10 +55,19 @@ from app.core.errors import (
 )
 from app.repositories.audit import AuditLogRepository
 from app.repositories.documents import DocumentRepository
-from app.schemas.documents import DocumentOut, DocumentStatus, DocumentStatusData
+from app.schemas.documents import (
+    DocumentListData,
+    DocumentOut,
+    DocumentStatus,
+    DocumentStatusData,
+    DocumentUploadTicket,
+    Pagination,
+    UploadIntentData,
+)
 from app.services.file_validation import (
     ValidationOutcome,
     sanitize_filename,
+    validate_upload_declaration,
     validate_uploaded_file,
 )
 from app.services.storage.base import DocumentStorage
@@ -93,53 +117,180 @@ class DocumentService:
     # -- upload -----------------------------------------------------------------
 
     def upload(self, *, user_id: UUID, filename: str, content: bytes) -> DocumentOut:
-        """Validate, deduplicate, store privately and record an upload."""
+        """Store and record an upload in a single server-side call.
+
+        Runs the exact same checks as the browser flow -- declaration
+        pre-check, magic-byte verification, deduplication, finalization -- by
+        composing :meth:`create_upload_intent` and :meth:`complete_upload`; only
+        the transport of the bytes differs.
+
+        The API deliberately does **not** use this: a serverless function must
+        never buffer a file body, so clients use the two-step signed-upload flow
+        instead. This is the seam for hosts that do accept the body directly
+        (local development, fixtures, one-off scripts).
+        """
         if self._storage is None:
             raise RuntimeError("DocumentService was built without document storage")
 
-        outcome = validate_uploaded_file(filename, content)
+        intent = self.create_upload_intent(
+            user_id=user_id, filename=filename, size_bytes=len(content)
+        )
+        document_id = intent.document.id
+        try:
+            self._storage.store_original(
+                user_id=user_id,
+                document_id=document_id,
+                filename=intent.document.filename,
+                content=content,
+                content_type=intent.document.mime_type or "application/octet-stream",
+            )
+        except StorageError:
+            self._abort_upload(
+                user_id, document_id, intent.upload.path, "The file could not be stored."
+            )
+            raise
+        return self.complete_upload(user_id=user_id, document_id=document_id)
+
+    def create_upload_intent(
+        self, *, user_id: UUID, filename: str, size_bytes: int
+    ) -> UploadIntentData:
+        """Reserve a private object key and sign a direct upload URL.
+
+        The file bytes never pass through the API: the browser ``PUT``s them
+        straight to private storage using the returned short-lived ticket, then
+        calls :meth:`complete_upload` for server-side verification. This keeps
+        the API process free of file buffering, which a serverless platform with
+        a hard request-body limit requires.
+
+        Only the declaration is checked here. The stored object is validated
+        again -- against its real magic bytes, size and checksum -- by
+        :meth:`complete_upload`, which is the security boundary.
+        """
+        if self._storage is None:
+            raise RuntimeError("DocumentService was built without document storage")
+
+        outcome = validate_upload_declaration(filename, size_bytes)
         if not outcome.valid:
             raise _validation_error(outcome)
 
-        checksum = hashlib.sha256(content).hexdigest()
-        if self._repository.find_duplicate(user_id, checksum) is not None:
-            raise DuplicateDocumentError()
-
-        safe_name = sanitize_filename(filename)
         document_id = uuid4()
+        storage_key = self._storage.original_key(user_id=user_id, document_id=document_id)
         try:
-            storage_key = self._storage.store_original(
-                user_id=user_id,
-                document_id=document_id,
-                filename=safe_name,
-                content=content,
-                content_type=outcome.mime_type or "application/octet-stream",
-            )
+            ticket = self._storage.create_signed_upload_url(storage_key)
         except StorageError:
             raise
         except Exception:
-            logger.error("document storage upload failed unexpectedly", exc_info=True)
+            logger.error("signing an upload URL failed unexpectedly", exc_info=True)
             raise StorageError() from None
 
+        row = self._repository.create(
+            document_id,
+            user_id=user_id,
+            original_filename=sanitize_filename(filename),
+            display_name=None,
+            mime_type=outcome.mime_type or "",
+            file_size_bytes=size_bytes,
+            storage_key=storage_key,
+            checksum_sha256=None,
+        )
+        return UploadIntentData(
+            document=_to_document_out(row),
+            upload=DocumentUploadTicket(
+                path=ticket.path,
+                token=ticket.token,
+                signed_url=ticket.signed_url,
+                expires_in_seconds=settings.signed_url_expires_seconds,
+            ),
+        )
+
+    def complete_upload(self, *, user_id: UUID, document_id: UUID) -> DocumentOut:
+        """Verify the uploaded object server-side and record its real metadata.
+
+        The object is read back once so the magic bytes, the real byte count and
+        the SHA-256 checksum are established from the bytes themselves rather
+        than from anything the client declared. An object that fails validation
+        is deleted and the document is marked ``FAILED`` with the reason, so a
+        rejected upload never lingers as a processable row.
+        """
+        if self._storage is None:
+            raise RuntimeError("DocumentService was built without document storage")
+
+        row = self._require_owned(user_id, document_id)
+        storage_key = str(row.get("storage_key") or "")
+        if not storage_key:
+            raise StorageError()
+
         try:
-            row = self._repository.create(
-                document_id,
-                user_id=user_id,
-                original_filename=safe_name,
-                display_name=None,
-                mime_type=outcome.mime_type or "",
-                file_size_bytes=len(content),
-                storage_key=storage_key,
-                checksum_sha256=checksum,
+            content = self._storage.read(storage_key)
+        except DocumentNotFoundError:
+            # The client never delivered the bytes. Record the reason so the
+            # row is not left looking processable to the scheduled drain.
+            self._abort_upload(
+                user_id, document_id, storage_key, "The uploaded file was not received."
             )
-        except Exception:
-            self._best_effort_delete(storage_key)
+            raise InvalidFileError(
+                "The uploaded file was not received. Please upload it again."
+            ) from None
+        except StorageError:
             raise
 
+        outcome = validate_uploaded_file(str(row.get("original_filename") or ""), content)
+        if not outcome.valid:
+            self._abort_upload(
+                user_id, document_id, storage_key, outcome.message or "Invalid file."
+            )
+            raise _validation_error(outcome)
+
+        checksum = hashlib.sha256(content).hexdigest()
+        duplicate = self._repository.find_duplicate(
+            user_id, checksum, exclude_document_id=document_id
+        )
+        if duplicate is not None:
+            self._abort_upload(
+                user_id, document_id, storage_key, "This document has already been uploaded."
+            )
+            raise DuplicateDocumentError()
+
+        updated = self._repository.transition(
+            user_id,
+            document_id,
+            from_statuses=(DocumentStatus.UPLOADED.value,),
+            to_status=DocumentStatus.UPLOADED.value,
+            extra={
+                "file_size_bytes": len(content),
+                "mime_type": outcome.mime_type or "",
+                "checksum_sha256": checksum,
+            },
+        )
+        if updated is None:
+            raise ConflictError("The upload cannot be completed in its current state.")
+
         self._log_audit(DOCUMENT_UPLOAD_ACTION, user_id, document_id)
-        return _to_document_out(row)
+        return _to_document_out(updated)
 
     # -- reads ------------------------------------------------------------------
+
+    def list(
+        self,
+        *,
+        user_id: UUID,
+        page: int = 1,
+        limit: int = 30,
+        status: str | None = None,
+    ) -> DocumentListData:
+        """Return the user's documents, newest first (API-Specification §8)."""
+        rows, total = self._repository.list_by_user(
+            user_id, page=page, limit=limit, status=status
+        )
+        return DocumentListData(
+            items=[_to_document_out(row) for row in rows],
+            pagination=Pagination(
+                page=page,
+                limit=limit,
+                total=total,
+                pages=_page_count(total, limit),
+            ),
+        )
 
     def get_metadata(self, *, user_id: UUID, document_id: UUID) -> DocumentOut:
         row = self._require_owned(user_id, document_id)
@@ -253,6 +404,21 @@ class DocumentService:
         except Exception:
             logger.warning("failed to clean up orphaned stored object", exc_info=True)
 
+    def _abort_upload(
+        self, user_id: UUID, document_id: UUID, storage_key: str, message: str
+    ) -> None:
+        """Discard a rejected upload so it is never left processable.
+
+        Best-effort by design: it runs while another error is already being
+        raised, so a storage hiccup must not replace the real reason the upload
+        was rejected.
+        """
+        self._best_effort_delete(storage_key)
+        try:
+            self.mark_failed(user_id=user_id, document_id=document_id, message=message)
+        except ApiError:
+            logger.warning("failed to mark a rejected upload as FAILED", exc_info=True)
+
     def _log_audit(self, action: str, user_id: UUID, document_id: UUID) -> None:
         if self._audit is None:
             return
@@ -269,6 +435,12 @@ class DocumentService:
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _page_count(total: int, limit: int) -> int:
+    if total <= 0 or limit <= 0:
+        return 0
+    return math.ceil(total / limit)
 
 
 def _status_of(row: dict[str, Any]) -> DocumentStatus:

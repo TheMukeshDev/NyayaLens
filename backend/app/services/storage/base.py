@@ -17,11 +17,35 @@ Contract notes:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from uuid import UUID
+
+
+@dataclass(frozen=True)
+class SignedUpload:
+    """A short-lived ticket letting a client write one object to private storage.
+
+    ``signed_url`` is a single-use URL the client ``PUT``s the raw file bytes to,
+    which keeps large uploads out of the API process entirely. ``token`` is
+    echoed back for clients that use a storage SDK instead of raw ``fetch``.
+    """
+
+    path: str
+    token: str
+    signed_url: str
 
 
 class DocumentStorage(ABC):
     """Abstract interface for private document object storage."""
+
+    @abstractmethod
+    def original_key(self, *, user_id: UUID, document_id: UUID) -> str:
+        """Return the object key reserved for a document's original file.
+
+        The key is derived (not client supplied) so ownership stays derivable
+        from the object path alone. Reserving it before the bytes arrive is what
+        makes a direct-to-storage upload possible.
+        """
 
     @abstractmethod
     def store_original(
@@ -45,6 +69,14 @@ class DocumentStorage(ABC):
 
         Raises ``StorageError`` on backend failure and
         ``DocumentNotFoundError`` when the object does not exist.
+        """
+
+    @abstractmethod
+    def create_signed_upload_url(self, storage_key: str) -> SignedUpload:
+        """Return a short-lived ticket a client can ``PUT`` the object bytes to.
+
+        Lets the browser upload straight to storage, so the API never buffers
+        the file body. Raises ``StorageError`` on backend failure.
         """
 
     @abstractmethod

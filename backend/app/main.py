@@ -10,8 +10,10 @@ Foundation wiring:
 * Security headers on every response.
 * Liveness (``/health``) and versioned structured health (``/api/v1/health``).
 
-Authentication is Supabase Auth; the backend verifies access tokens. AI
-features and business endpoints are intentionally not implemented yet.
+Authentication is Supabase Auth; the backend verifies access tokens. The
+business endpoints (documents, Q&A, understanding, comparisons, Action Center,
+reports) are implemented in ``app.api.routes``; see the API docs under
+``/api/v1/docs``.
 """
 
 from fastapi import FastAPI

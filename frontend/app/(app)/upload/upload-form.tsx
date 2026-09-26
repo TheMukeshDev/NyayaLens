@@ -6,8 +6,7 @@ import { CheckCircle2, UploadCloud } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { clientApi } from "@/lib/api/client";
-import { ERROR_MESSAGES } from "@/lib/constants";
+import { requestProcessing, uploadDocument, uploadErrorMessage } from "@/lib/api/upload";
 import { formatBytes } from "@/lib/format";
 import type { DocumentOut } from "@/lib/types";
 
@@ -71,22 +70,18 @@ export function UploadForm() {
 
     setError(null);
     setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
 
-    const result = await clientApi<{ document: DocumentOut }>("/documents", {
-      method: "POST",
-      body: formData,
-    });
+    const result = await uploadDocument(file);
 
-    if (result.ok && result.data?.document) {
+    if (result.ok) {
       setFile(null);
-      setUploaded(result.data.document);
+      setUploaded(result.document);
+      // Kick processing off without blocking navigation. The API host runs no
+      // long-lived worker, so this is what starts the pipeline; the scheduled
+      // drain on the backend covers anything this call misses.
+      requestProcessing(result.document.id);
     } else {
-      const message = result.error?.code
-        ? (ERROR_MESSAGES[result.error.code] ?? result.error.message)
-        : result.error?.message;
-      setError(message ?? "Upload failed. Please try again.");
+      setError(uploadErrorMessage(result));
     }
     setUploading(false);
   }

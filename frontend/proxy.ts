@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
+import { DEMO_USER_COOKIE, isDemoMode, supabaseConfig } from "@/lib/supabase/config";
+
 /**
  * Next.js 16 Proxy (formerly Middleware).
  *
@@ -27,9 +29,33 @@ function isProtectedPath(pathname: string): boolean {
 async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  const { pathname } = request.nextUrl;
+  if (isDemoMode()) {
+    const user = request.cookies.get(DEMO_USER_COOKIE)?.value;
+    if (!user && isProtectedPath(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
+    if (user && (pathname === "/login" || pathname === "/signup")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+    return supabaseResponse;
+  }
+
+  const { url, anonKey } = supabaseConfig();
+  if (!url || !anonKey) {
+    return supabaseResponse;
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         getAll() {
@@ -53,8 +79,6 @@ async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
 
   if (!user && isProtectedPath(pathname)) {
     const url = request.nextUrl.clone();

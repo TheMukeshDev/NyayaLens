@@ -139,18 +139,28 @@ Do not place uploaded legal documents inside the public frontend assets director
 
 # 7. Environment Variables
 
-Example:
+The canonical template is the repository-root `.env.example` (mirrored at
+`backend/.env.example`); every variable below is documented there. Key values:
 
 ```text
 SUPABASE_URL=
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_DB_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres
-LLM_API_KEY=
-EMBEDDING_API_KEY=
-OCR_API_KEY=
-CORS_ORIGINS=
+SUPABASE_ANON_KEY=            # browser-safe, NEXT_PUBLIC_ in the frontend
+SUPABASE_SERVICE_ROLE_KEY=    # backend-only, bypasses RLS
+SUPABASE_JWT_SECRET=          # used to verify Supabase Auth access tokens
+LLM_PROVIDER=                 # openai-compatible
+LLM_MODEL=
+LLM_API_URL=
+LLM_API_KEY=                  # backend-only
+EMBEDDING_PROVIDER=           # deterministic (dev) | openai-compatible (prod)
+EMBEDDING_MODEL=
+EMBEDDING_API_URL=
+EMBEDDING_API_KEY=            # backend-only
+CORS_ORIGINS=                 # exactly the deployed frontend origin(s)
 ```
+
+Runtime behaviour when AI variables are unset: the API still serves all
+endpoints, but AI-producing features abstain honestly (no fabricated output)
+and the embedding provider falls back to the deterministic dev provider.
 
 Secrets must exist only in deployment secret management.
 
@@ -193,10 +203,11 @@ Backend Docker image should:
 
 # 10. Database Migrations
 
-Use:
+Schema is owned as SQL migrations under `supabase/migrations/`, applied with
+the Supabase CLI (no alembic/alembic_botgen — the API is Supabase-native):
 
 ```text
-Alembic
+supabase db push            # applies supabase/migrations/ to the linked project
 ```
 
 Deployment flow:
@@ -204,20 +215,21 @@ Deployment flow:
 ```text
 Build
  ↓
-Run migrations
+Apply migrations (supabase db push)
  ↓
 Start application
  ↓
 Health check
 ```
 
-Migrations must be reviewed before production execution.
+Migrations (which also enable RLS and grants) must be reviewed before
+production execution.
 
 ---
 
 # 11. Background Workers
 
-Document processing should not block normal API requests.
+Document processing must not block normal API requests.
 
 Architecture:
 
@@ -235,7 +247,31 @@ Database Update
 READY
 ```
 
-For MVP, a simple worker architecture is sufficient.
+The implemented worker is a single process that drains `UPLOADED` documents
+through the deterministic pipeline. Operations runbook:
+
+```text
+# 1. Once, after the embedding model/dimension is configured:
+cd backend
+python -m app.workers.document_worker --ensure-embedding-index
+
+# 2. Always-on single worker (see below for process supervisors):
+python -m app.workers.document_worker --interval 30
+```
+
+- `--interval N` polls forever (sleeping N seconds between batches) and stops
+  cleanly on `SIGINT`/`SIGTERM`; omit it for a one-shot cron-style batch.
+- Run **exactly one** polling worker per project environment. The pipeline is
+  not horizontally scalable while `UPLOADED -> CLAIMING` claims are
+  in-flight, so do not treat the worker as a pool.
+- Suggested supervisors for the `--interval` mode:
+  - systemd unit (`Restart=always`, `ExecStart=… document_worker --interval 30`);
+  - cron `@reboot` + a keep-alive wrapper;
+  - a container with `restart: unless-stopped` running the backend image.
+- Monitor processing failures (`documents.processing_status = FAILED`) and
+  alert on a backlog of stuck `UPLOADED` rows.
+
+For MVP, this simple worker architecture is sufficient.
 
 Do not introduce unnecessary distributed infrastructure.
 
@@ -483,7 +519,7 @@ Comparison Tests
 [ ] Rate limiting
 [ ] Secure headers
 [ ] File validation
-[ ] Malware scanning
+[ ] Malware scanning (NOT yet implemented — content validation is size/MIME/structure only)
 [ ] Safe logging
 [ ] Health checks
 [ ] Monitoring
