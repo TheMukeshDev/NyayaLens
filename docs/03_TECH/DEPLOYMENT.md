@@ -205,6 +205,34 @@ Lifecycle/retention rules
 
 Do not place uploaded legal documents inside the public frontend assets directory.
 
+## 6.1 Upload path (direct to storage)
+
+File bytes never pass through the API. This is required on a serverless host,
+where the request-body limit (~4.5 MB) is far below `MAX_UPLOAD_SIZE_MB`, and it
+avoids holding a container's memory for the duration of a transfer. The flow is:
+
+```text
+1. POST /api/v1/documents/upload-intent   { filename, size_bytes }
+      -> validates the declared extension and size, reserves a private key
+      -> { document, upload: { path, token, signed_url, expires_in_seconds } }
+
+2. PUT <signed_url>                       raw file bytes, straight to Supabase
+
+3. POST /api/v1/documents/{id}/complete
+      -> backend reads the object back and verifies magic bytes, real size,
+         SHA-256, ownership and duplicate detection
+      -> records the document, or deletes the object and marks it FAILED
+```
+
+The signed URL is short-lived and single-use, and the reserved key is private to
+the authenticated owner. Step 3 is the security boundary: nothing the browser
+declares is trusted, so a file whose contents do not match its name is rejected
+after it is stored, and the object is removed.
+
+The old multipart `POST /api/v1/documents` endpoint no longer accepts file
+uploads. `DocumentService.upload` still exists as a composition of the two
+steps, for tests and local tooling.
+
 ---
 
 # 7. Environment Variables
@@ -626,14 +654,35 @@ Comparison Tests
 [ ] Rate limiting
 [ ] Secure headers
 [ ] File validation
-[ ] Malware scanning (NOT yet implemented — content validation is size/MIME/structure only)
+[ ] Malware scanning (NOT yet implemented - content validation is size/MIME/structure only)
 [ ] Safe logging
 [ ] Health checks
 [ ] Monitoring
 [ ] Database migrations
 [ ] AI evaluation
 [ ] E2E testing
+[ ] CRON_SECRET set on the backend project (required in production)
+[ ] Frontend NEXT_PUBLIC_API_URL / NEXT_PUBLIC_SUPABASE_* set in the BUILD environment
+[ ] CORS_ORIGINS on the backend contains the frontend's exact public origin
+[ ] Storage bucket is private and the storage policies are applied
+[ ] /health reachable on the deployed backend
 ```
+
+### First deployment to Vercel
+
+```text
+1. Create the backend project   -> Root Directory: backend/
+2. Add every backend env var from §4.1, set ENVIRONMENT=production, CRON_SECRET
+3. Deploy, then verify:  GET https://<backend>/health
+4. Create the frontend project  -> Root Directory: frontend/
+5. Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+   NEXT_PUBLIC_API_URL (backend origin), and redeploy — NEXT_PUBLIC_* are
+   inlined at build time, so changing them requires a rebuild
+6. Set CORS_ORIGINS on the backend to the frontend origin, then redeploy
+7. Sign up, upload a PDF, and confirm it reaches READY
+8. Confirm the cron appears under the backend project's Cron Jobs tab
+```
+
 
 ---
 

@@ -76,6 +76,12 @@ uv run python -m app.workers.document_worker --ensure-embedding-index  # once, a
 uv run python -m app.workers.document_worker                            # process pending documents
 ```
 
+That worker is a long-lived polling process, so it only runs where you can keep
+a process alive. On the serverless backend the same pipeline is driven by
+requests instead: the app asks the API to process each uploaded document, and a
+scheduled drain (`CRON_SECRET`-protected) catches anything that was missed. See
+[docs/03_TECH/DEPLOYMENT.md](docs/03_TECH/DEPLOYMENT.md) §11.1.
+
 ### Frontend
 
 ```powershell
