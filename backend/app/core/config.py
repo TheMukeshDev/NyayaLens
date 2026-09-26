@@ -21,6 +21,7 @@ _REPOSITORY_DIR = _BACKEND_DIR.parent
 # Local development commonly keeps one repository .env, while deployments can
 # provide a backend/.env with server-only overrides. The backend file wins.
 _ENV_FILE = (str(_REPOSITORY_DIR / ".env"), str(_BACKEND_DIR / ".env"))
+SUPPORTED_LLM_PROVIDERS = {"openai-compatible", "gemini-interactions"}
 
 
 class Settings(BaseSettings):
@@ -195,8 +196,9 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_llm_provider(cls, value: str) -> str:
         value = value.strip().lower()
-        if value not in {"openai-compatible", "gemini-interactions"}:
-            raise ValueError("llm_provider must be 'openai-compatible' or 'gemini-interactions'")
+        if value not in SUPPORTED_LLM_PROVIDERS:
+            supported = " or ".join(f"'{provider}'" for provider in sorted(SUPPORTED_LLM_PROVIDERS))
+            raise ValueError(f"llm_provider must be {supported}")
         return value
 
     @field_validator("llm_max_attempts")
