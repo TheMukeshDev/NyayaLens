@@ -86,6 +86,20 @@ npm run dev
 # http://localhost:3000
 ```
 
+For the split Vercel deployment, set the frontend project root to `frontend/`
+and configure only these frontend variables:
+
+```text
+NEXT_PUBLIC_DEMO_MODE=true
+NEXT_PUBLIC_API_URL=https://nyaya-lens-ruby.vercel.app
+```
+
+The backend project root is `backend/` and must separately define its Supabase
+server credentials and `CORS_ORIGINS=https://nyayalen.vercel.app`. Never copy
+backend secrets into the frontend Vercel project. Set `NEXT_PUBLIC_DEMO_MODE`
+to `false` only after replacing the placeholder/stale Supabase URL and anon key
+with values from the active Supabase project.
+
 ## Documentation
 
 The full documentation suite lives in `docs/` (indexed in `docs/README.md`):
